@@ -47,25 +47,29 @@ export const DANIELA50_VENUE_PHOTOS = [`${DANIELA_ASSET_BASE}/chacara-01.png`, `
 export const DANIELA50_MENU_PHOTOS = [] as string[];
 export const DANIELA50_CHOPP_PHOTO = `${DANIELA_ASSET_BASE}/chopp-kremer.png`;
 export const DANIELA50_BAND_PHOTO = `${DANIELA_ASSET_BASE}/raca-de-quintal.png`;
+export const DANIELA50_SKY_BARTENDERS_PHOTO = `${DANIELA_ASSET_BASE}/sky-bartenders.png`;
+export const DANIELA50_SKY_BARTENDERS_INSTAGRAM = "https://www.instagram.com/skybartenders/";
 export const DANIELA50_DJ_PHOTO = `${DANIELA_ASSET_BASE}/dj-gabriel.png`;
 
-export const DANIELA50_CONFIRMATION_DEADLINE = "2026-11-19";
+export const DANIELA50_CONFIRMATION_DEADLINE = "2026-12-01";
 
 export const DANIELA50_REMINDER_SCHEDULE = {
   confirmed: [
-    { date: "2026-12-12", label: "Lembrete com local, horário, mapa, recados aprovados e clima da festa" },
+    { date: "2026-12-12", label: "Lembrete com local, horário, mapa, clima da festa" },
     { date: "2026-12-18", label: "Lembrete final curto" },
   ],
   maybe: [
     { date: "2026-11-05", label: "Lembrete gentil para talvez + novidade dos recados" },
     { date: "2026-11-12", label: "Último lembrete antes do fechamento" },
-    { date: "2026-11-19", label: "Prazo final" },
+    { date: "2026-11-19", label: "Prazo original" },
+    { date: "2026-12-01", label: "Última oportunidade de confirmação" },
   ],
   pending: [
     { date: "2026-11-01", label: "Primeiro lembrete para pendentes + recado para a Dani" },
     { date: "2026-11-10", label: "Segundo lembrete para pendentes" },
     { date: "2026-11-18", label: "Aviso de fechamento" },
-    { date: "2026-11-19", label: "Prazo final" },
+    { date: "2026-11-19", label: "Prazo original" },
+    { date: "2026-12-01", label: "Última oportunidade de confirmação" },
   ],
 };
 
@@ -121,7 +125,8 @@ export const DANIELA50_EXTRAS: PresencaPublicEventExtras = {
       subtitle: "Drinks preparados na hora para brindar os 50 da Dani",
       time: "Durante a tarde de comemoração",
       description: "Uma novidade para deixar a tarde ainda mais especial: o pessoal da Sky Bartenders estará na festa preparando bebidas e drinks para acompanhar os encontros, a música e os brindes.",
-      instagramUrl: "https://www.instagram.com/skybartenders?stkn=MWdhcndwNmt6c3NoNg==",
+      instagramUrl: DANIELA50_SKY_BARTENDERS_INSTAGRAM,
+      imageUrl: DANIELA50_SKY_BARTENDERS_PHOTO,
     },
   ],
   menuSections: [
@@ -233,6 +238,13 @@ export function getPresencaPublicEventExtras(event?: Record<string, unknown> | n
   const hostPhotoUrl = isDaniela50Event(event) ? fallback.hostPhotoUrl : String(event?.host_photo_url ?? "").trim() || hostPhotoGallery[0] || fallback.hostPhotoUrl;
   const venueGallery = isDaniela50Event(event) ? fallback.venueGallery : asStringArray(event?.event_gallery, fallback.venueGallery);
 
+  const attractions = [...asAttractions(event?.attractions, fallback.attractions)];
+  if (isDaniela50Event(event)) {
+    const skyIndex = attractions.findIndex((item) => /sky\s*bartenders/i.test(item.title));
+    const sky = DANIELA50_EXTRAS.attractions.find((item) => item.title === "Sky Bartenders")!;
+    if (skyIndex < 0) attractions.push({ ...sky });
+    else attractions[skyIndex] = { ...attractions[skyIndex], imageUrl: sky.imageUrl, instagramUrl: sky.instagramUrl };
+  }
   return {
     mapUrl,
     venueInstagramUrl: String(event?.venue_instagram_url ?? "").trim() || fallback.venueInstagramUrl,
@@ -240,7 +252,7 @@ export function getPresencaPublicEventExtras(event?: Record<string, unknown> | n
     hostPhotoGallery,
     venueGallery,
     menuGallery: asStringArray(event?.menu_gallery, fallback.menuGallery),
-    attractions: asAttractions(event?.attractions, fallback.attractions),
+    attractions,
     menuSections: isDaniela50Event(event) ? fallback.menuSections : asMenuSections(event?.menu_sections, fallback.menuSections),
     buffetName: String(event?.buffet_name ?? "").trim() || fallback.buffetName,
     buffetInstagramUrl: String(event?.buffet_instagram_url ?? "").trim() || fallback.buffetInstagramUrl,
@@ -377,55 +389,56 @@ export function buildPersonalizedInvitationMessage(input: {
 
 
 export type Daniela50ReminderAudience = "confirmado" | "talvez" | "pendente";
+export type Daniela50Campaign = "final-rsvp" | "confirmed-week" | "confirmed-eve" | "thank-you";
 
-export function buildDaniela50ReminderMessage(input: { guest: Record<string, unknown>; event: Partial<PresencaEvent>; confirmationUrl: string; audience: Daniela50ReminderAudience }) {
-  const firstName = String(input.guest.full_name ?? "").trim().split(/\s+/)[0] || "você";
+export const DANIELA50_CAMPAIGNS: Record<Daniela50Campaign, { date: string; label: string; phase: string }> = {
+  "final-rsvp": { date: "2026-12-01", label: "Última confirmação", phase: "prazo_final" },
+  "confirmed-week": { date: "2026-12-12", label: "Lembrete de uma semana", phase: "lembrete_confirmados" },
+  "confirmed-eve": { date: "2026-12-18", label: "Lembrete da véspera", phase: "orientacao_final" },
+  "thank-you": { date: "2026-12-21", label: "Agradecimento pós-festa", phase: "agradecimento" },
+};
+
+export function daniela50CampaignLabel(campaign: Daniela50Campaign) {
+  return `Daniela 50 · ${DANIELA50_CAMPAIGNS[campaign].date} · ${DANIELA50_CAMPAIGNS[campaign].label}`;
+}
+
+export function buildDaniela50ReminderMessage(input: {
+  guest: Record<string, unknown>;
+  event: Partial<PresencaEvent>;
+  confirmationUrl: string;
+  audience: Daniela50ReminderAudience;
+  campaign: Daniela50Campaign;
+  pendingNames?: string[];
+  confirmedNames?: string[];
+  mixed?: boolean;
+  photosReady?: boolean;
+  notesReady?: boolean;
+}) {
+  const name = String(input.guest.full_name ?? "").trim().split(/\s+/)[0] || "você";
   const signature = buildDaniela50HostSignature(input.event);
-  const novelty = "Tem novidade para a tarde: além do samba, do DJ e do chopp, teremos a Sky Bartenders preparando drinks para brindar juntos.";
-
-  if (input.audience === "confirmado") {
-    return [
-      `Oi, ${firstName}! 💗`,
-      "",
-      "Sua presença já está confirmada nos meus 50 anos — e isso deixa essa comemoração ainda mais especial para mim.",
-      "",
-      novelty,
-      "",
-      "Guarde o dia 19/12. Mais perto da festa eu envio os últimos detalhes para você chegar com tranquilidade e aproveitar a tarde inteira.",
-      "",
-      input.confirmationUrl,
-      "",
-      signature,
-    ].join("\n");
+  const details = "📅 19/12/2026 — sábado\n⏰ 12h30 às 17h30\n📍 Chácara Piloto — Valinhos, SP";
+  const lines = [`Oi, ${name}! 💗`];
+  if (input.campaign === "final-rsvp") {
+    lines.push("Meus 50 anos estão chegando e estamos na reta final dos preparativos. Sei que dezembro é cheio de compromissos, mas ficarei muito feliz se ainda pudermos compartilhar essa tarde.");
+    if (input.mixed && input.pendingNames?.length) lines.push(`Ainda falta definir a presença de: ${input.pendingNames.join(", ")}. As demais respostas já registradas continuam valendo.`);
+    else lines.push("Antes de fechar os últimos detalhes, gostaria de saber se ainda existe a possibilidade de você estar comigo nesse dia.");
+    lines.push("Se não puder comparecer, tudo bem! Me avise pelo seu convite, por favor. Assim consigo organizar tudo com carinho para receber cada pessoa.");
+  } else if (input.campaign === "confirmed-week") {
+    lines.push("Está chegando o dia de celebrar meus 50 anos! Quero que essa tarde seja uma oportunidade de reencontrar pessoas queridas, dar boas risadas e criar novas lembranças.");
+    lines.push("Teremos samba, DJ, chopp e drinks da Sky Bartenders. Estou preparando tudo com muito carinho!");
+  } else if (input.campaign === "confirmed-eve") {
+    lines.push("É amanhã! Depois de tantos preparativos, chegou a hora de celebrar, reencontrar pessoas queridas e criar novas lembranças.");
+    lines.push(input.mixed ? "Espero as pessoas confirmadas a partir das 12h30!" : "Espero você a partir das 12h30!");
+  } else {
+    lines.push("Obrigada por fazer parte dessa celebração! Foi muito especial compartilhar esse momento com pessoas que fazem parte da minha história.");
   }
-
-  if (input.audience === "talvez") {
-    return [
-      `Oi, ${firstName}! 💗`,
-      "",
-      "Quando você respondeu ‘talvez’, eu deixei seu lugar em aberto porque gostaria muito de ter você comigo nessa tarde.",
-      "",
-      novelty,
-      "",
-      `Se já conseguir decidir, me ajuda confirmando pelo link até ${formatDaniela50Deadline()}. Assim conseguimos preparar buffet, bebidas, mesas e recepção pensando em quem estará lá.`,
-      "",
-      input.confirmationUrl,
-      "",
-      signature,
-    ].join("\n");
+  if (input.mixed && input.campaign !== "final-rsvp" && input.campaign !== "thank-you" && input.confirmedNames?.length) lines.push(`Presenças confirmadas neste convite: ${input.confirmedNames.join(", ")}.`);
+  if (input.notesReady && input.campaign !== "thank-you") lines.push("No convite também há recados carinhosos que foram escolhidos para compartilhar.");
+  if (input.photosReady) lines.push(input.campaign === "thank-you" ? "Se tiver fotos da festa, compartilhe pelo álbum de memórias no convite. Quero guardar também o seu olhar!" : "Teremos uma novidade: um álbum de memórias com as fotos feitas pelos convidados. Quero guardar essa história também através do seu olhar!");
+  if (input.campaign !== "thank-you") {
+    lines.push(details);
+    lines.push(input.campaign === "final-rsvp" ? "Você pode registrar sua resposta diretamente pelo seu convite:" : "No seu convite estão o mapa, a programação e o cardápio. Se surgir algum imprevisto, me avise, por favor:");
   }
-
-  return [
-    `Oi, ${firstName}! 💗`,
-    "",
-    "Passando para lembrar de um convite que é importante para mim: quero comemorar meus 50 anos perto de pessoas que fazem parte da minha história.",
-    "",
-    novelty,
-    "",
-    `Se puder, me dê um retorno pelo link até ${formatDaniela50Deadline()}. A resposta ajuda muito a deixar buffet, bebidas, mesas e recepção preparados para receber todo mundo bem.`,
-    "",
-    input.confirmationUrl,
-    "",
-    signature,
-  ].join("\n");
+  lines.push(input.confirmationUrl, "Com carinho,\n" + signature);
+  return lines.join("\n\n");
 }

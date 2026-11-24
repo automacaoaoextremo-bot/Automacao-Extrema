@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { PresencaClientShell } from "@/components/presenca-client-header";
 import { PresencaContextualHelp } from "@/components/presenca-contextual-help";
+import { DANIELA50_CAMPAIGNS, daniela50CampaignLabel, type Daniela50Campaign } from "@/lib/presenca-daniela50";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 type GuestSummary = {
@@ -86,6 +87,10 @@ export default function PresencaMensagensPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [publicApprovalUrl, setPublicApprovalUrl] = useState("");
+  const [campaign, setCampaign] = useState<Daniela50Campaign>("final-rsvp");
+  const [campaignOnly, setCampaignOnly] = useState(false);
+  const [eligibleGuestIds, setEligibleGuestIds] = useState<string[] | null>(null);
+  const [reviewIds, setReviewIds] = useState<string[]>([]);
   const formRef = useRef<HTMLFormElement>(null);
 
   async function getToken() {
@@ -198,18 +203,22 @@ export default function PresencaMensagensPage() {
     }
   }
 
-  async function generateDanielaReminders() {
+  async function generateDanielaReminders(dryRun = false) {
     setSaving(true);
     setError("");
     setMessage("");
     try {
       const token = await getToken();
-      const response = await fetch("/api/presenca-querida/cliente/messages/generate-reminders", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+      const response = await fetch("/api/presenca-querida/cliente/messages/generate-reminders", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ campaign, dryRun }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Não foi possível gerar os lembretes.");
-      setMessage(`Lembretes gerados para revisão: ${result.generated ?? 0}. Confirmados: ${result.byAudience?.confirmado ?? 0}; talvez: ${result.byAudience?.talvez ?? 0}; pendentes: ${result.byAudience?.pendente ?? 0}.`);
-      await loadMessages();
+      setEligibleGuestIds(result.eligibleGuestIds ?? []);
+      setReviewIds(result.reviewIds ?? []);
+      setCampaignOnly(true);
+      setMessage(`${dryRun ? "Simulação (sem gravar)" : `Gerados/atualizados: ${result.generated ?? 0}; preservados: ${result.preserved ?? 0}`} | Convites elegíveis: ${result.targets ?? 0}; confirmados: ${result.byAudience?.confirmado ?? 0}; talvez: ${result.byAudience?.talvez ?? 0}; pendentes: ${result.byAudience?.pendente ?? 0}; sem destinatário: ${result.skippedNoRecipient ?? 0}; revisar mensagens antigas: ${result.needsReview ?? 0}. Nenhum WhatsApp enviado.`);
+      if (!dryRun) await loadMessages();
     } catch (err) {
+      setEligibleGuestIds(null);
       setError(err instanceof Error ? err.message : "Erro ao gerar lembretes.");
     } finally {
       setSaving(false);
@@ -303,7 +312,7 @@ export default function PresencaMensagensPage() {
   }
 
   const guestNotes = messages.filter((item) => item.guest_id && item.message_phase === "recado_convidado");
-  const personalizedMessages = messages.filter((item) => item.guest_id && item.message_phase !== "recado_convidado");
+  const personalizedMessages = messages.filter((item) => item.guest_id && item.message_phase !== "recado_convidado" && (!campaignOnly || item.template_label === daniela50CampaignLabel(campaign)));
   const templateMessages = messages.filter((item) => !item.guest_id && item.message_phase !== "recado_convidado");
 
   return (
@@ -319,7 +328,13 @@ export default function PresencaMensagensPage() {
               </div>
               <div className="flex flex-col gap-2 sm:items-end">
                 <button type="button" onClick={generateInvitations} disabled={saving} className="rounded-2xl bg-[#E85D75] px-4 py-3 text-sm font-black text-white disabled:opacity-60">Gerar convites personalizados</button>
-            <button type="button" onClick={generateDanielaReminders} disabled={saving} className="rounded-xl bg-[#E85D75] px-4 py-3 font-black text-white disabled:opacity-60">Gerar lembretes Daniela 50</button>
+                <label className="grid gap-1 text-xs font-bold text-[#00334E]">Campanha Daniela 50
+                  <select className="rounded-xl border border-slate-200 bg-white p-3 text-sm" value={campaign} disabled={saving} onChange={(e) => { setCampaign(e.target.value as Daniela50Campaign); setEligibleGuestIds(null); setReviewIds([]); setCampaignOnly(true); }}>
+                    {Object.entries(DANIELA50_CAMPAIGNS).filter(([key]) => key !== "thank-you").map(([key, item]) => <option key={key} value={key}>{item.date.split("-").reverse().join("/")} — {item.label}</option>)}
+                  </select>
+                </label>
+                <button type="button" onClick={() => generateDanielaReminders(true)} disabled={saving} className="rounded-xl bg-slate-100 px-4 py-3 font-black text-[#00334E] disabled:opacity-60">Simular destinatários</button>
+                <button type="button" onClick={() => generateDanielaReminders()} disabled={saving} className="rounded-xl bg-[#E85D75] px-4 py-3 font-black text-white disabled:opacity-60">Gerar lembretes para revisão</button>
                 {publicApprovalUrl && (
                   <button type="button" onClick={copyPublicApprovalUrl} className="rounded-2xl bg-[#00334E] px-4 py-3 text-sm font-black text-white">Copiar link público</button>
                 )}
@@ -395,7 +410,10 @@ export default function PresencaMensagensPage() {
           </div>
 
           <div className="rounded-[2rem] bg-white p-5 shadow-xl ring-1 ring-rose-100 sm:p-7">
-            <h2 className="text-2xl font-black text-[#00334E]">Convites para aprovação</h2>
+            <h2 className="text-2xl font-black text-[#00334E]">{campaignOnly ? "Lembretes da campanha" : "Convites e mensagens para aprovação"}</h2>
+            <label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={campaignOnly} onChange={(e) => setCampaignOnly(e.target.checked)} /> Mostrar somente a campanha selecionada</label>
+            <p className="mt-2 text-sm text-slate-600">Antes de enviar, simule novamente, confira os vínculos e a resposta atual. Aprove apenas o texto atualizado. Agradecimento será liberado após a festa.</p>
+            {!loading && !personalizedMessages.length && <p className="mt-3 text-sm text-slate-600">Nenhuma mensagem neste filtro.</p>}
             <div className="mt-5 grid gap-4">
               {loading && <p className="font-bold text-slate-500">Carregando...</p>}
               {!loading && personalizedMessages.map((item) => {
@@ -412,10 +430,12 @@ export default function PresencaMensagensPage() {
                       </div>
                       <span className={`rounded-full px-3 py-1 text-xs font-black ${item.is_active === false ? "bg-slate-200 text-slate-600" : "bg-white text-[#00334E]"}`}>{item.is_active === false ? "Inativa" : "Ativa"}</span>
                     </div>
-                    <pre className="mt-4 whitespace-pre-wrap rounded-2xl bg-white p-4 text-sm leading-6 text-slate-700">{item.message_text}</pre>
+                    <p className="mt-2 text-xs font-bold text-slate-500">{item.template_label}</p>
+                    {reviewIds.includes(item.id) && <p className="mt-2 rounded-xl bg-amber-100 p-3 text-sm font-bold text-amber-900">Revisar: o texto ou a elegibilidade mudou. Confira as respostas e, se necessário, volte para pendente e gere novamente antes de enviar.</p>}
+                    <pre className="mt-4 whitespace-pre-wrap break-words rounded-2xl bg-white p-4 text-sm leading-6 text-slate-700">{item.message_text}</pre>
                     <div className="mt-4 flex flex-wrap gap-2">
                       <button type="button" onClick={() => startEditingMessage(item)} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#00334E]">Editar</button>
-                      <button type="button" onClick={() => copyMessageText(item.message_text, guest?.full_name)} className="rounded-xl bg-[#00334E] px-3 py-2 text-sm font-black text-white">Copiar WhatsApp</button>
+                      <button type="button" disabled={item.template_label?.startsWith("Daniela 50 · 2026-") && (!approved || item.is_active === false || item.template_label !== daniela50CampaignLabel(campaign) || !eligibleGuestIds?.includes(item.guest_id ?? ""))} onClick={() => { if (reviewIds.includes(item.id) && !window.confirm("Confira se o texto aprovado ainda corresponde às respostas atuais. Deseja copiar mesmo assim?")) return; void copyMessageText(item.message_text, guest?.full_name); }} className="rounded-xl bg-[#00334E] px-3 py-2 text-sm font-black text-white disabled:opacity-40">Copiar WhatsApp</button>
                       <button type="button" onClick={() => actionMessage(item.id, approved ? "reject" : "approve", undefined, "Convite")} className={`rounded-xl px-3 py-2 text-sm font-black text-white ${approved ? "bg-amber-600" : "bg-emerald-600"}`}>{approved ? "Reprovar" : "Aprovar"}</button>
                       {!approved && <button type="button" onClick={() => actionMessage(item.id, "pending", undefined, "Convite")} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#00334E]">Voltar para pendente</button>}
                       <button type="button" onClick={() => actionMessage(item.id, item.is_active === false ? "activate" : "inactivate", undefined, "Convite")} className="rounded-xl bg-white px-3 py-2 text-sm font-black text-[#00334E]">{item.is_active === false ? "Ativar" : "Inativar"}</button>

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { buildPublicConfirmationUrl, DANIELA50_REMINDER_SCHEDULE } from "@/lib/presenca-daniela50";
+import { reminderTargets, type ReminderGuest } from "@/lib/presenca-reminder-targets";
 import { sendPresencaReminderDigestEmail } from "@/lib/mail";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
@@ -13,7 +14,7 @@ type EventRow = {
   slug: string;
 };
 
-type GuestRow = {
+type GuestRow = ReminderGuest & {
   id: string;
   full_name: string;
   email: string | null;
@@ -26,10 +27,9 @@ type GuestRow = {
 
 function authOk(request: Request) {
   const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) return true;
+  if (!cronSecret) return false;
   const authHeader = request.headers.get("authorization");
-  const token = new URL(request.url).searchParams.get("token");
-  return authHeader === `Bearer ${cronSecret}` || token === cronSecret;
+  return authHeader === `Bearer ${cronSecret}`;
 }
 
 function todayInSaoPaulo() {
@@ -50,12 +50,6 @@ function allReminders(): ReminderItem[] {
   ];
 }
 
-function statusesForReminder(status: ReminderItem["status"]) {
-  if (status === "confirmado") return ["confirmado", "confirmado_com_acompanhantes"];
-  if (status === "talvez") return ["talvez"];
-  return ["pendente", "reservou_data"];
-}
-
 function siteUrl() {
   return (process.env.NEXT_PUBLIC_SITE_URL || "https://www.automacaoextrema.com").replace(/\/+$/, "");
 }
@@ -69,15 +63,14 @@ async function loadDanielaEvent() {
 async function loadGuests(event: EventRow, reminder: ReminderItem) {
   const { data, error } = await supabaseAdmin
     .from("pq_guests")
-    .select("id,full_name,email,whatsapp,relationship_label,relationship_context,guest_status,individual_token")
+    .select("id,full_name,email,whatsapp,relationship_label,relationship_context,guest_status,individual_token,primary_guest_id,is_invite_recipient,is_active")
     .eq("event_id", event.id)
     .eq("is_active", true)
-    .in("guest_status", statusesForReminder(reminder.status))
-    .or("is_invite_recipient.eq.true,whatsapp.not.is.null")
     .order("full_name", { ascending: true });
 
   if (error) throw error;
-  return (data ?? []) as GuestRow[];
+  const campaign = reminder.status === "confirmado" ? "confirmed-week" : "final-rsvp";
+  return reminderTargets((data ?? []) as GuestRow[], campaign).targets.filter((target) => target.audience === reminder.status).map((target) => ({ ...target.recipient, guest_status: target.audience }));
 }
 
 async function handle(request: Request) {
@@ -85,6 +78,7 @@ async function handle(request: Request) {
 
   const url = new URL(request.url);
   const baseDate = url.searchParams.get("date") || todayInSaoPaulo();
+  const dryRun = url.searchParams.get("dry_run") === "true" || url.searchParams.has("date") || process.env.VERCEL_ENV !== "production";
   const dueReminders = allReminders().filter((item) => addDays(item.date, -2) === baseDate);
 
   if (dueReminders.length === 0) {
@@ -98,7 +92,7 @@ async function handle(request: Request) {
 
   for (const reminder of dueReminders) {
     const guests = await loadGuests(event, reminder);
-    const emailResult = await sendPresencaReminderDigestEmail({
+    const emailResult = dryRun ? { sent: false, reason: "Simulação, nenhum e-mail enviado." } : await sendPresencaReminderDigestEmail({
       eventName: event.name,
       eventSlug: event.slug,
       reminderDate: reminder.date,
@@ -117,7 +111,7 @@ async function handle(request: Request) {
     results.push({ reminder, guests: guests.length, email: emailResult });
   }
 
-  return NextResponse.json({ ok: true, date: baseDate, results });
+  return NextResponse.json({ ok: true, dryRun, date: baseDate, results });
 }
 
 export async function GET(request: Request) {
