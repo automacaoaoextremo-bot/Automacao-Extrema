@@ -16,6 +16,7 @@ const sectionLinks = [
   { label: "Convidados", href: "/solucoes/presenca-querida/cliente/convidados" },
   { label: "Mensagens", href: "/solucoes/presenca-querida/cliente/mensagens" },
   { label: "Confirmações", href: "/solucoes/presenca-querida/cliente/confirmacoes" },
+  { label: "Memórias", href: "/solucoes/presenca-querida/cliente/memorias" },
   { label: "Relatórios", href: "/solucoes/presenca-querida/cliente/relatorios" },
 ];
 
@@ -26,6 +27,7 @@ const sidebarLinks = [
   { label: "Convidados", href: "/solucoes/presenca-querida/cliente/convidados", description: "Lista, CSV e vínculos" },
   { label: "Mensagens", href: "/solucoes/presenca-querida/cliente/mensagens", description: "Convites para aprovação" },
   { label: "Confirmações", href: "/solucoes/presenca-querida/cliente/confirmacoes", description: "Status e pendências" },
+  { label: "Memórias", href: "/solucoes/presenca-querida/cliente/memorias", description: "Fotos, curadoria e cardápio de mesa" },
   { label: "Relatórios", href: "/solucoes/presenca-querida/cliente/relatorios", description: "Buffet, recepção e exportações" },
 ];
 

@@ -413,6 +413,16 @@ export default async function PresencaQueridaEventoPublicoPage({
         </div>
       </section>
 
+      {isDaniela && (
+        <section className="mx-auto max-w-4xl px-4 py-8" id="memorias-compartilhadas">
+          <div className="rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-rose-100">
+            <p className="text-sm font-black uppercase tracking-widest text-[#E85D75]">Memórias compartilhadas</p>
+            <h2 className="mt-2 text-2xl font-black text-[#00334E]">Uma festa. Muitos olhares. Infinitas lembranças.</h2>
+            <p className="mt-3 text-slate-700">No dia da festa, procure o QR Code nas mesas para compartilhar suas fotos. Cada registro ajuda a guardar esse encontro através do seu olhar. O álbum será liberado pela organização após a curadoria.</p>
+          </div>
+        </section>
+      )}
+
       {inviteToken && guest && <PresencaPublicConfirmation token={inviteToken} eventSlug={event.slug ?? slug} initialGuest={guest} />}
       {inviteToken && !guest && (
         <section id="confirmacao" className="mx-auto max-w-4xl px-4 py-8">
