@@ -1318,10 +1318,20 @@ export async function POST(request: Request) {
         .select("id,whatsapp,active").eq("organization_id", context.organizationId).eq("id", ownerId).maybeSingle();
       if (ownerError) throw ownerError;
       if (!owner?.id || owner.active === false) return NextResponse.json({ error: "Responsável não localizado." }, { status: 404 });
-      if (operation === "set-active" || operation === "delete") {
+      if (operation === "delete") {
+        if (!/^[0-9a-f-]{36}$/i.test(relationshipId)) return NextResponse.json({ error: "Selecione o vínculo a excluir." }, { status: 400 });
+        // AG29: exclusao efetiva e reciproca em uma transacao do banco.
+        const { data: deletedCount, error: deleteError } = await supabaseAdmin.rpc("oh_tucxa_ag29_delete_relationship", {
+          p_organization_id: context.organizationId, p_owner_person_id: ownerId, p_relationship_id: relationshipId,
+        });
+        if (deleteError) throw deleteError;
+        if (!deletedCount) return NextResponse.json({ error: "Vínculo não encontrado." }, { status: 404 });
+        return NextResponse.json({ ok: true, relatedConsulentes: await loadRelatedConsulentes(context.organizationId, ownerId) });
+      }
+      if (operation === "set-active") {
         if (!relationshipId) return NextResponse.json({ error: "Escolha vínculo cadastrado." }, { status: 400 });
         const { data: updated, error: updateError } = await supabaseAdmin.from("oh_tucxa_consulente_relationships")
-          .update({ active: operation === "delete" ? false : body.active === true, updated_at: new Date().toISOString() })
+          .update({ active: body.active === true, updated_at: new Date().toISOString() })
           .eq("organization_id", context.organizationId).eq("owner_person_id", ownerId).eq("id", relationshipId)
           .select("id").maybeSingle();
         if (updateError) throw updateError;
@@ -1332,7 +1342,7 @@ export async function POST(request: Request) {
         if (original?.related_person_id) {
           // Ação recíproca: não deixar o outro lado ativo após inativação/exclusão.
           const { error: mirrorError } = await supabaseAdmin.from("oh_tucxa_consulente_relationships")
-            .update({ active: operation === "delete" ? false : body.active === true, updated_at: new Date().toISOString() })
+            .update({ active: body.active === true, updated_at: new Date().toISOString() })
             .eq("organization_id", context.organizationId).eq("owner_person_id", original.related_person_id)
             .eq("related_person_id", ownerId);
           if (mirrorError) console.error("[TUCXA AG28 vínculo recíproco]", mirrorError);

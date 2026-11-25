@@ -49,6 +49,10 @@ export default function ConsulenteAgendamentoPilotoPage() {
   const [bookingFor, setBookingFor] = useState<"self" | "group">("self");
   const [bookingView, setBookingView] = useState<View>("date");
   const [bookingStep, setBookingStep] = useState<BookingStep>("who");
+  // AG29: paginacao real nos dois passos, sem rolagem de listas extensas.
+  const [datePage, setDatePage] = useState(1);
+  const [entityChoicePage, setEntityChoicePage] = useState(1);
+  const pageSize = 4;
   const [relatedForm, setRelatedForm] = useState({ fullName: "", relationship: "", whatsapp: "" });
   const [requestFirstTime, setRequestFirstTime] = useState(false);
   const [requestEntity, setRequestEntity] = useState("");
@@ -228,6 +232,7 @@ export default function ConsulenteAgendamentoPilotoPage() {
     setSelectedDate("");
     setSelectedEntityId("");
     setError("");
+    setDatePage(1); setEntityChoicePage(1);
     setBookingStep(view === "date" ? "dates" : "entities");
   }
 
@@ -245,6 +250,12 @@ export default function ConsulenteAgendamentoPilotoPage() {
   }
 
 
+  const visibleDates = bookingView === "date" ? dateChoices : entityDateChoices;
+  const visibleEntities = bookingView === "date" ? (selected?.entities || []) : entityChoices;
+  const datePageCount = Math.max(1, Math.ceil(visibleDates.length / pageSize));
+  const entityPageCount = Math.max(1, Math.ceil(visibleEntities.length / pageSize));
+  const datePageSafe = Math.min(datePage, datePageCount);
+  const entityPageSafe = Math.min(entityChoicePage, entityPageCount);
   const bookingStepTitle = bookingStep === "dates" ? "Escolher data" : bookingStep === "entities" ? "Escolher Entidade" : bookingStep === "review" ? "Confirmar agendamento" : "Agendar atendimento";
 
   return <main className="min-h-screen bg-[#F7FAF2] text-[#10251C]">
@@ -268,7 +279,7 @@ export default function ConsulenteAgendamentoPilotoPage() {
     {modal && payload && <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-3 sm:p-4"
       role="dialog" aria-modal="true" aria-labelledby="tucxa-consulente-modal-title"
       onMouseDown={(e) => { if (e.currentTarget === e.target) closeCurrentStep(); }}>
-      <section className="max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl overflow-y-auto rounded-[2rem] bg-white p-4 shadow-2xl sm:p-6">
+      <section className="max-h-[calc(100dvh-1.5rem)] w-full min-w-0 max-w-2xl overflow-x-hidden overflow-y-auto rounded-[2rem] bg-white p-3 shadow-2xl sm:p-6">
         <div className="flex items-center justify-between gap-3">
           <h2 id="tucxa-consulente-modal-title" className="text-xl font-black text-[#123D2C]">
             {modal === "agendar" ? bookingStepTitle : modal === "solicitarVinculo" ? "Solicitar vínculo à Recepção" : modal === "agendamentos" ? "Meus agendamentos" : modal === "sucesso" ? "Agendamento realizado" : modal === "familia" ? "Agendar grupo / família" : modal === "familiaResultado" ? "Resultado dos agendamentos" : modal === "cadastro" ? "Cadastro" : "Configurações"}
@@ -296,7 +307,7 @@ export default function ConsulenteAgendamentoPilotoPage() {
           <button type="button" disabled={saving} onClick={() => void sendLinkRequest()} className="rounded-xl bg-[#123D2C] p-3 font-black text-white">Enviar solicitação pelo WhatsApp da Recepção</button>
           <p className="text-xs text-slate-600">O envio depende da confirmação da mensagem no WhatsApp. A solicitação não cria nem autoriza o vínculo automaticamente.</p>
         </div>}
-        {modal === "familia" && <div className="mt-4 grid gap-3 text-sm text-[#123D2C]">
+        {modal === "familia" && <div className="mt-4 grid min-w-0 w-full max-w-full gap-3 overflow-x-hidden text-sm text-[#123D2C]">
 
           <div className="rounded-xl bg-[#F7FAF2] p-3"><p className="mb-2 font-black">Pessoas</p>
             {([{ personId: payload.profile.personId, fullName: payload.profile.fullName }]
@@ -306,7 +317,7 @@ export default function ConsulenteAgendamentoPilotoPage() {
                 onChange={(e) => { const next = e.target.checked ? [...groupPersonIds, person.personId] : groupPersonIds.filter((id) => id !== person.personId); void loadGroupOptions(groupDate, next); }} />{firstAndLastName(person.fullName)}</label>)}
           </div>
           <label className="grid gap-1 font-black">Data
-            <select className="rounded-xl border p-3" value={groupDate} onChange={(e) => void loadGroupOptions(e.target.value, groupPersonIds)}><option value="">Escolha uma data</option>
+            <select className="w-full min-w-0 max-w-full rounded-xl border p-3" value={groupDate} onChange={(e) => void loadGroupOptions(e.target.value, groupPersonIds)}><option value="">Escolha uma data</option>
               {payload.dates.map((day) => <option key={day.date} value={day.date}>{shortDate(day.date)}</option>)}
             </select>
           </label>
@@ -314,15 +325,15 @@ export default function ConsulenteAgendamentoPilotoPage() {
           {groupDate && !loading && groupPersonIds.map((id) => {
             const person = id === payload.profile.personId ? payload.profile.fullName : payload.relatedPeople.find((item) => item.personId === id)?.fullName || "Consulente";
             const options = groupOptions[id] || [];
-            return <label key={id} className="grid gap-1 rounded-xl border p-3"><strong>{firstAndLastName(person)}</strong>
-              <select value={groupEntities[id] || ""} disabled={!options.length} onChange={(e) => setGroupEntities((state) => ({ ...state, [id]: e.target.value }))} className="rounded-lg border p-2">
+            return <label key={id} className="grid w-full min-w-0 max-w-full gap-1 overflow-hidden rounded-xl border p-3"><strong className="min-w-0 break-words">{firstAndLastName(person)}</strong>
+              <select value={groupEntities[id] || ""} disabled={!options.length} onChange={(e) => setGroupEntities((state) => ({ ...state, [id]: e.target.value }))} className="block w-full min-w-0 max-w-full truncate rounded-lg border p-2">
                 <option value="">{options.length ? "Selecione a Entidade" : "Sem vagas ou já agendado"}</option>
                 {options.map((entity) => <option key={entity.id} value={entity.id}>{entity.displayName} ({entity.available} vagas)</option>)}
               </select>
             </label>;
           })}
           <button type="button" disabled={saving || loading || !groupDate || !groupPersonIds.length || groupPersonIds.some((id) => !groupEntities[id])} onClick={() => void bookGroup()}
-            className="rounded-xl bg-[#123D2C] p-3 font-black text-white disabled:opacity-40">{saving ? "Agendando..." : "Registrar agendamentos individuais"}</button>
+            className="w-full min-w-0 max-w-full break-words rounded-xl bg-[#123D2C] p-3 text-center text-xs font-black text-white disabled:opacity-40 sm:text-sm">{saving ? "Agendando..." : "Registrar agendamentos individuais"}</button>
         </div>}
         {modal === "familiaResultado" && <div className="mt-4 grid gap-2 text-sm">
           {groupResults.map((item, index) => <div key={index} className={`rounded-xl p-3 ${item.ok ? "bg-emerald-50" : "bg-amber-50"}`}>
@@ -359,22 +370,32 @@ export default function ConsulenteAgendamentoPilotoPage() {
           {!loading && bookingStep === "dates" && <>
             {bookingView === "entity" && selectedEntityId && <p className="text-sm font-semibold text-[#123D2C]">Entidade: {entityChoices.find((item) => item.id === selectedEntityId)?.displayName || "Selecionada"}</p>}
             <div className="grid gap-2">
-              {(bookingView === "date" ? dateChoices : entityDateChoices).map((date) => {
+              {visibleDates.slice((datePageSafe - 1) * pageSize, datePageSafe * pageSize).map((date) => {
                 const selectable = !date.alreadyBooked && (bookingView === "date" ? date.entities.length > 0 : date.entities.some((entity) => entity.id === selectedEntityId));
                 return <button key={date.date} type="button" disabled={!selectable} onClick={() => { setSelectedDate(date.date); if (bookingView === "date") { setSelectedEntityId(""); setBookingStep("entities"); } else { setBookingStep("review"); } }}
                   className="rounded-xl border border-[#123D2C]/15 bg-white p-3 text-left text-sm disabled:cursor-not-allowed disabled:opacity-65">
                   <strong>{shortDate(date.date)}</strong> {date.alreadyBooked ? <span className="text-amber-800">— Já agendado</span> : <span className="text-slate-600">— {bookingView === "date" ? `${date.entities.length} Entidade(s) com vaga` : `${date.entities.find((entity) => entity.id === selectedEntityId)?.available ?? 0} vaga(s)`}</span>}
                 </button>;
               })}
-              {!(bookingView === "date" ? dateChoices : entityDateChoices).length && <p className="rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-900">Não há datas disponíveis neste período.</p>}
+              {!visibleDates.length && <p className="rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-900">Não há datas disponíveis neste período.</p>}
+              {datePageCount > 1 && <div className="grid grid-cols-3 items-center gap-2" aria-label="Paginação das datas">
+                <button type="button" disabled={datePageSafe === 1} onClick={() => setDatePage((page) => Math.max(1, page - 1))} className="rounded-lg border p-2 text-xs font-bold disabled:opacity-40">Anterior</button>
+                <span className="text-center text-xs font-semibold">{datePageSafe} / {datePageCount}</span>
+                <button type="button" disabled={datePageSafe >= datePageCount} onClick={() => setDatePage((page) => Math.min(datePageCount, page + 1))} className="rounded-lg border p-2 text-xs font-bold disabled:opacity-40">Próxima</button>
+              </div>}
             </div>
           </>}
           {!loading && bookingStep === "entities" && <>
             {bookingView === "date" && <p className="text-sm font-semibold text-[#123D2C]">Data: {shortDate(selectedDate)}</p>}
             <div className="grid gap-2">
-              {(bookingView === "date" ? (selected?.entities || []) : entityChoices).map((entity) => <button key={entity.id} type="button" onClick={() => { setSelectedEntityId(entity.id); setBookingStep(bookingView === "date" ? "review" : "dates"); }}
+              {visibleEntities.slice((entityPageSafe - 1) * pageSize, entityPageSafe * pageSize).map((entity) => <button key={entity.id} type="button" onClick={() => { setSelectedEntityId(entity.id); setBookingStep(bookingView === "date" ? "review" : "dates"); }}
                 className="rounded-xl border border-[#123D2C]/15 bg-white p-3 text-left text-sm"><strong>{entity.displayName}</strong><span className="block text-xs text-slate-600">{bookingView === "date" ? `${entity.available} vaga(s)` : `${payload.dates.filter((date) => !date.alreadyBooked && date.entities.some((item) => item.id === entity.id)).length} data(s) disponível(is)`}{entity.isDefault ? " · Entidade padrão" : ""}</span></button>)}
-              {!(bookingView === "date" ? selected?.entities.length : entityChoices.length) && <p className="rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-900">Não há Entidades disponíveis para esta opção.</p>}
+              {!visibleEntities.length && <p className="rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-900">Não há Entidades disponíveis para esta opção.</p>}
+              {entityPageCount > 1 && <div className="grid grid-cols-3 items-center gap-2" aria-label="Paginação das Entidades">
+                <button type="button" disabled={entityPageSafe === 1} onClick={() => setEntityChoicePage((page) => Math.max(1, page - 1))} className="rounded-lg border p-2 text-xs font-bold disabled:opacity-40">Anterior</button>
+                <span className="text-center text-xs font-semibold">{entityPageSafe} / {entityPageCount}</span>
+                <button type="button" disabled={entityPageSafe >= entityPageCount} onClick={() => setEntityChoicePage((page) => Math.min(entityPageCount, page + 1))} className="rounded-lg border p-2 text-xs font-bold disabled:opacity-40">Próxima</button>
+              </div>}
             </div>
           </>}
           {!loading && bookingStep === "review" && <div className="grid gap-3">

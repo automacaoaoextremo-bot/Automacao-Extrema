@@ -548,6 +548,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [linkedBookingEntities, setLinkedBookingEntities] = useState<Record<string, string>>({});
   const [linkedBookingResults, setLinkedBookingResults] = useState<Array<{ name: string; ok: boolean; detail: string }>>([]);
   const [linkedEditorOpen, setLinkedEditorOpen] = useState(false);
+  const [linkedFormPopupOpen, setLinkedFormPopupOpen] = useState(false);
   const [linkedMode, setLinkedMode] = useState<"whatsapp" | "sem-whatsapp">("whatsapp");
   const [linkedForm, setLinkedForm] = useState({ relationshipId: "", relatedPersonId: "", fullName: "", whatsapp: "", relationship: "" });
 
@@ -1400,7 +1401,9 @@ export default function AgendamentoPilotoRecepcaoPage() {
   }
 
   function startLinkedEditor(related?: RelatedConsulente) {
+    // O botao no cadastro abre primeiro a lista; Editar abre o formulario separado.
     setLinkedEditorOpen(true);
+    setLinkedFormPopupOpen(Boolean(related));
     setLinkedForm(related ? { relationshipId: related.relationshipId, relatedPersonId: related.relatedPersonId,
       fullName: related.fullName, whatsapp: related.whatsapp, relationship: related.relationship } :
       { relationshipId: "", relatedPersonId: "", fullName: "", whatsapp: "", relationship: "" });
@@ -1418,6 +1421,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
         : [];
       setFoundPerson((current) => current ? { ...current, relatedConsulentes } : current);
       setLinkedForm({ relationshipId: "", relatedPersonId: "", fullName: "", whatsapp: "", relationship: "" });
+      setLinkedFormPopupOpen(false);
       setSuccessNotice({ title: "Vínculo salvo", message: "Cadastro atualizado pela Recepção." });
     } catch (error) { setErrorNotice({ title: "Vínculo não atualizado", message: error instanceof Error ? error.message : "Confira os dados." }); }
     finally { setSaving(false); }
@@ -1434,7 +1438,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
         : [];
       setFoundPerson((current) => current ? { ...current, relatedConsulentes } : current);
       setSuccessNotice({ title: "Vínculo atualizado", message: operation === "delete" ?
-        "Vínculo retirado da lista ativa. Histórico de atendimentos preservado." : "Situação do vínculo atualizada." });
+        "Vínculo excluído. Histórico dos atendimentos preservado." : "Situação do vínculo atualizada." });
     } catch (error) { setErrorNotice({ title: "Não foi possível alterar o vínculo", message: error instanceof Error ? error.message : "Tente novamente." }); }
     finally { setSaving(false); }
   }
@@ -4024,26 +4028,25 @@ export default function AgendamentoPilotoRecepcaoPage() {
 
       {linkedBookingOpen && foundPerson && payload && (
         <Modal title="Agendar grupo / família" onClose={() => setLinkedBookingOpen(false)}>
-          <div className="grid gap-3">
+          <div className="grid w-full min-w-0 max-w-full gap-3 overflow-x-hidden">
             <p className="text-xs text-slate-600">Data: {shortDate(payload.selectedDate)}. Cada pessoa terá sua própria Entidade e confirmação.</p>
             <section className="rounded-xl bg-[#F7FAF2] p-3">
               <p className="font-black text-[#123D2C]">Pessoas vinculadas</p>
-              {[{ relatedPersonId: foundPerson.id, fullName: foundPerson.fullName, active: true } as Partial<RelatedConsulente>,
-                ...(foundPerson.relatedConsulentes || []).filter((p) => p.relatedPersonId && p.active !== false)].
-                filter((p, i, all) => all.findIndex((q) => q.relatedPersonId === p.relatedPersonId) === i).map((p) => (
+              {(foundPerson.relatedConsulentes || []).filter((p) => p.relatedPersonId && p.relatedPersonId !== foundPerson.id && p.active !== false)
+                .filter((p, i, all) => all.findIndex((q) => q.relatedPersonId === p.relatedPersonId) === i).map((p) => (
                   <label key={p.relatedPersonId} className="mt-2 flex items-center gap-2 text-sm font-semibold">
                     <input type="checkbox" checked={linkedBookingPersonIds.includes(p.relatedPersonId || "")}
                       onChange={(e) => setLinkedBookingPersonIds((ids) => e.target.checked ? [...ids, p.relatedPersonId || ""] : ids.filter((id) => id !== p.relatedPersonId))} />
                     {p.fullName}
                   </label>
               ))}
-              {!(foundPerson.relatedConsulentes || []).some((p) => p.relatedPersonId && p.active !== false) && <p className="mt-2 text-xs">Nenhuma pessoa vinculada ativa. Use o cadastro da Recepção para incluir.</p>}
+              {!(foundPerson.relatedConsulentes || []).some((p) => p.relatedPersonId && p.relatedPersonId !== foundPerson.id && p.active !== false) && <p className="mt-2 text-xs">Nenhuma pessoa vinculada ativa. Use o cadastro da Recepção para incluir.</p>}
             </section>
             {linkedBookingPersonIds.map((id) => {
               const person = id === foundPerson.id ? foundPerson : foundPerson.relatedConsulentes?.find((p) => p.relatedPersonId === id);
-              return <label key={id} className="grid gap-1 text-xs font-black text-[#123D2C]">
-                {person?.fullName} — Entidade
-                <select value={linkedBookingEntities[id] || ""} onChange={(e) => setLinkedBookingEntities((v) => ({ ...v, [id]: e.target.value }))} className="rounded-xl border p-3">
+              return <label key={id} className="grid min-w-0 max-w-full gap-1 overflow-hidden text-xs font-black text-[#123D2C]">
+                <span className="break-words">{person?.fullName} — Entidade</span>
+                <select value={linkedBookingEntities[id] || ""} onChange={(e) => setLinkedBookingEntities((v) => ({ ...v, [id]: e.target.value }))} className="block w-full min-w-0 max-w-full truncate rounded-xl border p-3">
                   <option value="">Escolha uma Entidade</option>
                   {usableEntities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name} · {entity.available} vaga(s)</option>)}
                 </select>
@@ -4061,43 +4064,29 @@ export default function AgendamentoPilotoRecepcaoPage() {
         </Modal>
       )}
 
-      {linkedEditorOpen && foundPerson && (
+      {linkedEditorOpen && !linkedFormPopupOpen && foundPerson && (
         <Modal title="Pessoas vinculadas a este cadastro" onClose={() => setLinkedEditorOpen(false)}>
           <div className="grid gap-3">
             <div className="grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => { setLinkedMode("whatsapp"); setLinkedForm({ relationshipId: "", relatedPersonId: "", fullName: "", whatsapp: "", relationship: "" }); }}
-                className={`rounded-xl p-3 text-left text-sm font-black ${linkedMode === "whatsapp" ? "bg-[#123D2C] text-white" : "bg-[#E9F2E7] text-[#123D2C]"}`}>Pessoa com WhatsApp<span className="block text-[10px]">TOQUE PARA ABRIR</span></button>
-              <button type="button" onClick={() => { setLinkedMode("sem-whatsapp"); setLinkedForm({ relationshipId: "", relatedPersonId: "", fullName: "", whatsapp: "", relationship: "" }); }}
-                className={`rounded-xl p-3 text-left text-sm font-black ${linkedMode === "sem-whatsapp" ? "bg-[#123D2C] text-white" : "bg-[#E9F2E7] text-[#123D2C]"}`}>Pessoa sem WhatsApp<span className="block text-[10px]">TOQUE PARA ABRIR</span></button>
+              <button type="button" onClick={() => { setLinkedMode("whatsapp"); setLinkedForm({ relationshipId: "", relatedPersonId: "", fullName: "", whatsapp: "", relationship: "" }); setLinkedFormPopupOpen(true); }}
+                className="rounded-xl bg-[#123D2C] p-3 text-left text-sm font-black text-white">Pessoa com WhatsApp<span className="block text-[10px]">TOQUE PARA ABRIR</span></button>
+              <button type="button" onClick={() => { setLinkedMode("sem-whatsapp"); setLinkedForm({ relationshipId: "", relatedPersonId: "", fullName: "", whatsapp: "", relationship: "" }); setLinkedFormPopupOpen(true); }}
+                className="rounded-xl bg-[#E9F2E7] p-3 text-left text-sm font-black text-[#123D2C]">Pessoa sem WhatsApp<span className="block text-[10px]">TOQUE PARA ABRIR</span></button>
             </div>
             <div className="grid gap-2 rounded-xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
               <p className="text-sm font-black text-[#123D2C]">Pessoas cadastradas</p>
-              {(foundPerson.relatedConsulentes || []).filter((p) => Boolean(p.whatsapp) === (linkedMode === "whatsapp") && !!p.relationshipId).map((p) => (
+              {(foundPerson.relatedConsulentes || []).filter((p) => Boolean(p.relationshipId) && p.relatedPersonId !== foundPerson.id).map((p) => (
                 <div key={p.relationshipId} className="rounded-xl bg-white p-3 ring-1 ring-[#123D2C]/10">
                   <p className="font-black text-[#123D2C]">{p.fullName} <span className="text-xs font-semibold">{p.active === false ? "(inativo)" : ""}</span></p>
                   <p className="text-xs text-slate-600">{p.relationship}{p.whatsapp ? ` · ${p.whatsapp}` : " · Sem WhatsApp próprio"}</p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <button type="button" onClick={() => startLinkedEditor(p)} className="rounded-lg border px-3 py-2 text-xs font-black">Editar</button>
                     <button type="button" disabled={saving} onClick={() => void toggleLinkedPerson(p, "set-active", p.active === false)} className="rounded-lg border px-3 py-2 text-xs font-black">{p.active === false ? "Ativar" : "Inativar"}</button>
-                    <button type="button" disabled={saving} onClick={() => { if (window.confirm("Retirar este vínculo? Os agendamentos existentes serão preservados.")) void toggleLinkedPerson(p, "delete"); }} className="rounded-lg border border-red-200 px-3 py-2 text-xs font-black text-red-800">Excluir vínculo</button>
+                    <button type="button" disabled={saving} onClick={() => { if (window.confirm("Excluir definitivamente esta associação? Os agendamentos anteriores serão preservados.")) void toggleLinkedPerson(p, "delete"); }} className="rounded-lg border border-red-200 px-3 py-2 text-xs font-black text-red-800">Excluir vínculo</button>
                   </div>
                 </div>
               ))}
-              <p className="text-xs text-slate-500">Excluir vínculo desativa a associação sem apagar os atendimentos anteriores.</p>
-            </div>
-            <div className="grid gap-2 rounded-xl border p-3">
-              <p className="text-sm font-black text-[#123D2C]">{linkedForm.relationshipId ? "Editar vínculo" : "Incluir novo"}</p>
-              <label className="grid gap-1 text-xs font-black">Nome completo
-                <input className="rounded-lg border p-3" value={linkedForm.fullName} onChange={(e) => setLinkedForm((v) => ({ ...v, fullName: e.target.value }))} disabled={Boolean(linkedForm.relatedPersonId)} />
-              </label>
-              {linkedMode === "whatsapp" && <label className="grid gap-1 text-xs font-black">WhatsApp com DDD
-                <input className="rounded-lg border p-3" inputMode="tel" value={linkedForm.whatsapp} onChange={(e) => setLinkedForm((v) => ({ ...v, whatsapp: e.target.value }))} disabled={Boolean(linkedForm.relatedPersonId)} />
-              </label>}
-              <label className="grid gap-1 text-xs font-black">Relação / parentesco
-                <input className="rounded-lg border p-3" value={linkedForm.relationship} onChange={(e) => setLinkedForm((v) => ({ ...v, relationship: e.target.value }))} />
-              </label>
-              <button type="button" disabled={saving || linkedForm.relationship.trim().length === 0 || (!linkedForm.relatedPersonId && linkedForm.fullName.trim().length < 3)}
-                onClick={() => void saveLinkedPerson()} className="rounded-xl bg-[#123D2C] p-3 font-black text-white disabled:opacity-50">{saving ? "Salvando..." : linkedForm.relationshipId ? "Salvar edição" : "Incluir novo vínculo"}</button>
+              <p className="text-xs text-slate-500">Excluir vínculo remove a associação; os atendimentos anteriores são preservados.</p>
             </div>
             <div className="grid gap-2 rounded-xl border border-[#123D2C]/15 p-3">
               <p className="text-sm font-black text-[#123D2C]">Entidade padrão de pessoa vinculada</p>
@@ -4125,6 +4114,26 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 <button type="button" disabled={saving} onClick={() => void saveRelatedConsulentePreferences()} className="rounded-xl bg-[#2F6B43] p-3 text-sm font-black text-white disabled:opacity-60">Salvar preferências da pessoa</button>
               </>}
             </div>
+          </div>
+        </Modal>
+      )}
+
+      {linkedFormPopupOpen && foundPerson && (
+        <Modal title={linkedForm.relationshipId ? "Editar pessoa vinculada" : linkedMode === "whatsapp" ? "Pessoa com WhatsApp" : "Pessoa sem WhatsApp"}
+          onClose={() => setLinkedFormPopupOpen(false)}>
+          <div className="grid min-w-0 gap-3">
+            <p className="text-sm font-semibold text-[#123D2C]">{linkedForm.relationshipId ? "Atualize a associação" : "Incluir novo vínculo"}</p>
+            <label className="grid min-w-0 gap-1 text-xs font-black">Nome completo
+              <input className="w-full min-w-0 rounded-lg border p-3" value={linkedForm.fullName} onChange={(e) => setLinkedForm((v) => ({ ...v, fullName: e.target.value }))} disabled={Boolean(linkedForm.relatedPersonId)} />
+            </label>
+            {linkedMode === "whatsapp" && <label className="grid min-w-0 gap-1 text-xs font-black">WhatsApp com DDD
+              <input className="w-full min-w-0 rounded-lg border p-3" inputMode="tel" value={linkedForm.whatsapp} onChange={(e) => setLinkedForm((v) => ({ ...v, whatsapp: e.target.value }))} disabled={Boolean(linkedForm.relatedPersonId)} />
+            </label>}
+            <label className="grid min-w-0 gap-1 text-xs font-black">Relação / parentesco
+              <input className="w-full min-w-0 rounded-lg border p-3" value={linkedForm.relationship} onChange={(e) => setLinkedForm((v) => ({ ...v, relationship: e.target.value }))} />
+            </label>
+            <button type="button" disabled={saving || linkedForm.relationship.trim().length === 0 || (!linkedForm.relatedPersonId && linkedForm.fullName.trim().length < 3)}
+              onClick={() => void saveLinkedPerson()} className="rounded-xl bg-[#123D2C] p-3 font-black text-white disabled:opacity-50">{saving ? "Salvando..." : linkedForm.relationshipId ? "Salvar edição" : "Incluir novo vínculo"}</button>
           </div>
         </Modal>
       )}
