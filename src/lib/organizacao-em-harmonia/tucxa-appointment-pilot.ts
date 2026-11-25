@@ -1213,7 +1213,10 @@ export function pilotReservationError(error: unknown) {
   if (message.includes("PILOT_DATE_NOT_ALLOWED")) return { status: 409, message: "O piloto está disponível somente nas segundas e terças previstas no calendário." };
   if (message.includes("PILOT_ENTITY_NOT_SCHEDULED")) return { status: 409, message: "Esta Entidade não está prevista para esta data." };
   if (message.includes("PILOT_ENTITY_SUSPENDED")) return { status: 409, message: "O atendimento desta Entidade está suspenso para a data escolhida." };
-  if (message.includes("PILOT_DUPLICATE_PERSON_DATE")) return { status: 409, message: "Esta pessoa já possui um agendamento ativo nesta data." };
+  if (message.includes("PILOT_MEDICAL_COMPANION_REQUIRED")) return { status: 409, message: "Para agendar Dr. Alexandre ou Dr. Augusto é obrigatório ter outro atendimento na mesma data." };
+  if (message.includes("PILOT_MEDICAL_WEEKDAY_INVALID")) return { status: 409, message: "Esta Entidade médica não atende no dia escolhido." };
+  if (message.includes("PILOT_MEDICAL_COMPANION_CANNOT_REMOVE")) return { status: 409, message: "Mantenha o atendimento principal enquanto houver agendamento médico na mesma data." };
+  if (message.includes("PILOT_DUPLICATE_PERSON_DATE")) return { status: 409, message: "Esta pessoa já possui um agendamento ativo nesta data (exceto complemento médico autorizado)." };
   if (message.includes("PILOT_NO_AVAILABILITY")) return { status: 409, message: "A última vaga desta Entidade para a data escolhida acabou de ser preenchida." };
   return { status: 500, message: "Não foi possível concluir o agendamento agora." };
 }
