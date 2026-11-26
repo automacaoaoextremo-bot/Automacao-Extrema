@@ -41,6 +41,7 @@ type EntityCatalogItem = {
   cavalinhoWhatsappEnabled: boolean;
   acceptsFirstTimeTransfers: boolean;
   allowsNondefaultBooking: boolean;
+  allowsSameDayBooking: boolean;
   mondayOccurrences: number[];
   tuesdayOccurrences: number[];
   mediums: Medium[];
@@ -165,7 +166,7 @@ type Payload = {
   receptionPreferences: ReceptionPreferences;
   summary: SummaryCounts;
 };
-type FoundPerson = { id: string; fullName: string; whatsapp: string; email: string; defaultEntityId?: string; defaultEntityName?: string; allowDifferentEntity?: boolean; relatedConsulentes?: RelatedConsulente[] };
+type FoundPerson = { id: string; fullName: string; whatsapp: string; email: string; defaultEntityId?: string; defaultEntityName?: string; allowDifferentEntity?: boolean; allowFilhoCorrenteBooking?: boolean; relatedConsulentes?: RelatedConsulente[] };
 type AccessInfo = { login?: string; temporaryPassword?: string; loginUrl?: string; whatsappUrl?: string; emailSent?: boolean };
 type BookingResult = {
   appointment?: { id: string; personName: string; appointmentDate: string; appointmentTime: string; entityName: string; order: number | null; confirmationDeadline: string };
@@ -549,6 +550,13 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [linkedBookingResults, setLinkedBookingResults] = useState<Array<{ name: string; ok: boolean; detail: string }>>([]);
   const [linkedEditorOpen, setLinkedEditorOpen] = useState(false);
   const [linkedFormPopupOpen, setLinkedFormPopupOpen] = useState(false);
+  const [linkedWhatsappListOpen, setLinkedWhatsappListOpen] = useState(false);
+  const [linkedLookupCompleted, setLinkedLookupCompleted] = useState(false);
+  const [linkedLookupFound, setLinkedLookupFound] = useState(false);
+  const [linkedLookupDefaultEntity, setLinkedLookupDefaultEntity] = useState("");
+  const [linkedLookupLoading, setLinkedLookupLoading] = useState(false);
+  const [linkedFirstTime, setLinkedFirstTime] = useState<boolean | null>(null);
+  const [linkedDefaultEntityId, setLinkedDefaultEntityId] = useState("");
   const [linkedMode, setLinkedMode] = useState<"whatsapp" | "sem-whatsapp">("whatsapp");
   const [linkedForm, setLinkedForm] = useState({ relationshipId: "", relatedPersonId: "", fullName: "", whatsapp: "", relationship: "" });
 
@@ -603,7 +611,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   const [settingsSection, setSettingsSection] = useState<string | null>(null);
   const [showCavalinhoPicker, setShowCavalinhoPicker] = useState(false);
   const [cavalinhoPickerPage, setCavalinhoPickerPage] = useState(1);
-  const [editPerson, setEditPerson] = useState({ fullName: "", whatsapp: "", email: "", defaultEntityId: "", allowDifferentEntity: true });
+  const [editPerson, setEditPerson] = useState({ fullName: "", whatsapp: "", email: "", defaultEntityId: "", allowDifferentEntity: true, allowFilhoCorrenteBooking: false });
   const [editEntity, setEditEntity] = useState({
     entityId: "",
     name: "",
@@ -619,6 +627,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     cavalinhoWhatsappEnabled: false,
     acceptsFirstTimeTransfers: false,
     allowsNondefaultBooking: false,
+    allowsSameDayBooking: false,
   });
   const [cadastroMode, setCadastroMode] = useState<"menu" | "consulentes" | "entidades">("menu");
   const [showCreateConsulente, setShowCreateConsulente] = useState(false);
@@ -1115,7 +1124,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setSearchResults([]);
     setPersonNotFound(false);
     setAccessInfo(null);
-    setEditPerson({ fullName: "", whatsapp: "", email: "", defaultEntityId: "", allowDifferentEntity: true });
+    setEditPerson({ fullName: "", whatsapp: "", email: "", defaultEntityId: "", allowDifferentEntity: true, allowFilhoCorrenteBooking: false });
     setNewPerson({ fullName: "", email: "", password: "12345678", privacyAccepted: false });
     setNewPersonWhatsapp("");
     setShowCreateConsulente(false);
@@ -1278,7 +1287,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setSearchResults([]);
 
     try {
-      const details = await postPilot({ action: "get-consulente", personId: person.id });
+      const details = await postPilot({ action: "get-consulente", personId: person.id, purpose: modal === "cadastros" ? "cadastro" : "agendamento" });
       const detailedPerson = details.person && typeof details.person === "object"
         ? details.person as FoundPerson
         : person;
@@ -1322,6 +1331,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
         email: detailedPerson.email || person.email,
         defaultEntityId,
         allowDifferentEntity,
+        allowFilhoCorrenteBooking: detailedPerson.allowFilhoCorrenteBooking === true,
       });
 
       if (modal === "agendar" && bookingMode === "date" && !bookingContextLocked) {
@@ -1408,6 +1418,38 @@ export default function AgendamentoPilotoRecepcaoPage() {
       fullName: related.fullName, whatsapp: related.whatsapp, relationship: related.relationship } :
       { relationshipId: "", relatedPersonId: "", fullName: "", whatsapp: "", relationship: "" });
     setLinkedMode(related?.whatsapp ? "whatsapp" : "sem-whatsapp");
+    setLinkedLookupCompleted(Boolean(related));
+    setLinkedLookupFound(Boolean(related?.relatedPersonId));
+    setLinkedLookupDefaultEntity(related?.defaultEntityName || "");
+    setLinkedFirstTime(null);
+    setLinkedDefaultEntityId(related?.defaultEntityId || "");
+  }
+
+  async function lookupLinkedWhatsapp() {
+    if (!foundPerson) return;
+    const whatsapp = linkedForm.whatsapp.replace(/\D/g, "");
+    if (whatsapp.length !== 11 && !(whatsapp.startsWith("55") && whatsapp.length === 13)) {
+      setErrorNotice({ title: "WhatsApp incompleto", message: "Informe WhatsApp com DDD antes de consultar." });
+      return;
+    }
+    setLinkedLookupLoading(true);
+    try {
+      const result = await postPilot({ action: "lookup-linked-whatsapp", whatsapp });
+      const matched = result.found === true && result.person && typeof result.person === "object"
+        ? result.person as { id: string; fullName: string; whatsapp: string; defaultEntityId?: string; defaultEntityName?: string; declaredFirstTime?: boolean }
+        : null;
+      if (matched?.id === foundPerson.id) throw new Error("Não é possível vincular a própria pessoa.");
+      setLinkedLookupCompleted(true);
+      setLinkedLookupFound(Boolean(matched));
+      setLinkedLookupDefaultEntity(matched?.defaultEntityName || "");
+      setLinkedFirstTime(matched?.declaredFirstTime === true ? true : null);
+      setLinkedDefaultEntityId(matched?.defaultEntityId || "");
+      setLinkedForm((current) => ({ ...current,
+        relatedPersonId: matched?.id || "", fullName: matched?.fullName || "",
+        whatsapp: matched?.whatsapp || whatsapp }));
+    } catch (error) {
+      setErrorNotice({ title: "Consulta indisponível", message: error instanceof Error ? error.message : "Confira o WhatsApp." });
+    } finally { setLinkedLookupLoading(false); }
   }
 
   async function saveLinkedPerson() {
@@ -1415,7 +1457,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
     setSaving(true);
     try {
       const result = await postPilot({ action: "manage-linked-person", operation: "save", ownerPersonId: foundPerson.id,
-        ...linkedForm, whatsapp: linkedMode === "whatsapp" ? linkedForm.whatsapp : "" });
+        ...linkedForm, whatsapp: linkedMode === "whatsapp" ? linkedForm.whatsapp : "",
+        firstTime: linkedFirstTime, defaultEntityId: linkedDefaultEntityId });
       const relatedConsulentes = Array.isArray(result.relatedConsulentes)
         ? result.relatedConsulentes.filter((item): item is RelatedConsulente => Boolean(item && typeof item === "object"))
         : [];
@@ -1563,7 +1606,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
   async function loadConsulenteAlphabet(letter = "") {
     setAlphabetLoading(true);
     try {
-      const result = await postPilot({ action: "consulente-alphabet", letter, appointmentDate: payload?.selectedDate || "" });
+      const result = await postPilot({ action: "consulente-alphabet", letter, appointmentDate: modal === "cadastros" ? "" : payload?.selectedDate || "", purpose: modal === "cadastros" ? "cadastro" : "agendamento" });
       const letters = Array.isArray(result.letters)
         ? result.letters.filter((item): item is string => typeof item === "string" && /^[A-Z]$/.test(item))
         : [];
@@ -1697,7 +1740,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       if (!result.person || typeof result.person !== "object") throw new Error("Cadastro criado sem identificação da pessoa.");
       const person = result.person as FoundPerson;
       setFoundPerson(person);
-      setEditPerson({ fullName: person.fullName, whatsapp: person.whatsapp, email: person.email, defaultEntityId: "", allowDifferentEntity: true });
+      setEditPerson({ fullName: person.fullName, whatsapp: person.whatsapp, email: person.email, defaultEntityId: "", allowDifferentEntity: true, allowFilhoCorrenteBooking: false });
       setAccessInfo(result.access && typeof result.access === "object" ? result.access as AccessInfo : null);
       setPersonNotFound(false);
       setShowCreateConsulente(false);
@@ -1978,16 +2021,21 @@ export default function AgendamentoPilotoRecepcaoPage() {
     if (!rescheduleRequest) return;
     const option = rescheduleRequest.options.find((item) => item.entityId === rescheduleRequest.selectedEntityId);
     if (!option?.dates.some((item) => item.date === rescheduleRequest.selectedDate)) return;
-    const confirmed = window.confirm(`Reagendar ${rescheduleRequest.consulenteName} para ${formatDateInputPtBr(rescheduleRequest.selectedDate)}?\n\nO link de confirmação anterior deixará de funcionar. Será necessário enviar o novo link.`);
+    const confirmed = window.confirm(`Reagendar ${rescheduleRequest.consulenteName} para ${formatDateInputPtBr(rescheduleRequest.selectedDate)}?\n\nO link anterior deixará de funcionar. O novo envio será tentado automaticamente quando o canal estiver habilitado.`);
     if (!confirmed) return;
     setSaving(true);
     try {
       const result = await postPilot({ action: "reschedule-appointment", appointmentId: rescheduleRequest.appointmentId,
         entityId: rescheduleRequest.selectedEntityId, appointmentDate: rescheduleRequest.selectedDate, confirmation: "REAGENDAR" });
-      setRescheduleConfirmationUrl(typeof result.confirmationUrl === "string" ? result.confirmationUrl : "");
+      const notice = result.notification && typeof result.notification === "object"
+        ? result.notification as { sent?: boolean; status?: string; error?: string } : null;
+      // Em falha, deixa o link disponivel para contingencia manual, sem repetir reserva.
+      setRescheduleConfirmationUrl(notice?.sent ? "" : typeof result.confirmationUrl === "string" ? result.confirmationUrl : "");
       setRescheduleRequest(null);
       setOpenAppointmentActions({});
-      setSuccessNotice({ title: "Agendamento reagendado", message: "Vaga atualizada. Copie e envie o novo link de confirmação ao Consulente." });
+      setSuccessNotice({ title: "Agendamento reagendado", message: notice?.sent
+        ? "O fluxo de reagendamento foi acionado no BotConversa. Confira a entrega no provedor."
+        : `Vaga atualizada. O envio automatico nao foi confirmado. ${notice?.error || "Use o novo link em contato manual."}` });
       await load(payload?.selectedDate);
     } catch (actionError) {
       setErrorNotice({ title: "Não foi possível reagendar", message: actionError instanceof Error ? actionError.message : "Tente novamente." });
@@ -2250,6 +2298,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
         defaultEntityId: editPerson.defaultEntityId,
         defaultEntityName: payload?.entityCatalog.find((entity) => entity.id === editPerson.defaultEntityId)?.name || "",
         allowDifferentEntity: editPerson.allowDifferentEntity,
+        allowFilhoCorrenteBooking: editPerson.allowFilhoCorrenteBooking,
       });
 
       if (alphabetReturnLetter) {
@@ -2286,6 +2335,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       cavalinhoWhatsappEnabled: false,
       acceptsFirstTimeTransfers: false,
     allowsNondefaultBooking: false,
+    allowsSameDayBooking: false,
     });
   }
 
@@ -2399,6 +2449,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
       cavalinhoWhatsappEnabled: entity?.cavalinhoWhatsappEnabled === true,
       acceptsFirstTimeTransfers: entity?.acceptsFirstTimeTransfers === true,
       allowsNondefaultBooking: entity?.allowsNondefaultBooking === true,
+      allowsSameDayBooking: entity?.allowsSameDayBooking === true,
     });
   }
 
@@ -2435,6 +2486,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
         cavalinhoWhatsappEnabled: editEntity.cavalinhoWhatsappEnabled,
         acceptsFirstTimeTransfers: editEntity.acceptsFirstTimeTransfers,
         allowsNondefaultBooking: editEntity.allowsNondefaultBooking,
+        allowsSameDayBooking: editEntity.allowsSameDayBooking,
       });
       if (editEntity.entityId && entityExceptionDate && entityExceptionReason.trim()) {
         await postPilot({
@@ -3692,6 +3744,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
                         </select>
                       </label>
                       <Toggle checked={!editPerson.allowDifferentEntity} onChange={(checked) => setEditPerson((current) => ({ ...current, allowDifferentEntity: !checked }))} label="Não permitir que este Consulente escolha Entidade diferente da padrão" />
+                       <Toggle checked={editPerson.allowFilhoCorrenteBooking} onChange={(allowFilhoCorrenteBooking) => setEditPerson((current) => ({ ...current, allowFilhoCorrenteBooking }))} label="Permitir agendamento de segunda/terça mesmo sendo Filho da Corrente" />
+                       <p className="text-[11px] text-slate-600">Exceção individual desativada por padrão; não libera cadastros vinculados a Entidades/Cavalinhos.</p>
                       <p className="text-[11px] font-semibold leading-4 text-slate-500">Por padrão, o Consulente pode escolher outra Entidade. Marque a opção acima somente para restringir à Entidade padrão.</p>
 
                       <button type="button" onClick={() => startLinkedEditor()} className="w-full rounded-xl bg-[#E9F2E7] p-3 text-left text-sm font-black text-[#123D2C] ring-1 ring-[#123D2C]/10">
@@ -3816,6 +3870,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       <p className="px-2 text-[11px] font-semibold text-slate-600">Habilita apenas a realocação feita pela Recepção. Não altera as regras de agendamento inicial de Primeira Vez.</p>
                       </div>
                       <Toggle checked={editEntity.allowsNondefaultBooking} onChange={(allowsNondefaultBooking) => setEditEntity((current) => ({ ...current, allowsNondefaultBooking }))} label="Permitir que um consulente agende com esta Entidade mesmo não sendo sua Entidade padrão" />
+                      <Toggle checked={editEntity.allowsSameDayBooking} onChange={(allowsSameDayBooking) => setEditEntity((current) => ({ ...current, allowsSameDayBooking }))} label="Permitir agendamento adicional com esta Entidade na mesma data" />
+                      <p className="px-2 text-[11px] font-semibold text-slate-600">Desativado por padrão. Não permite duas reservas da mesma pessoa com a própria Entidade.</p>
                             </section>}
                             {entityEditorSection === "dias" && <section>                      <section className="rounded-xl border border-[#123D2C]/10 bg-[#F7FAF2] p-2.5">
                         <h3 className="text-sm font-black text-[#123D2C]">Dias de atendimento</h3>
@@ -4064,15 +4120,23 @@ export default function AgendamentoPilotoRecepcaoPage() {
         </Modal>
       )}
 
-      {linkedEditorOpen && !linkedFormPopupOpen && foundPerson && (
-        <Modal title="Pessoas vinculadas a este cadastro" onClose={() => setLinkedEditorOpen(false)}>
+      {linkedEditorOpen && !linkedFormPopupOpen && !linkedWhatsappListOpen && foundPerson && (
+        <Modal title="Pessoas vinculadas a este cadastro" onClose={() => { setLinkedEditorOpen(false); setLinkedWhatsappListOpen(false); }}>
           <div className="grid gap-3">
             <div className="grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => { setLinkedMode("whatsapp"); setLinkedForm({ relationshipId: "", relatedPersonId: "", fullName: "", whatsapp: "", relationship: "" }); setLinkedFormPopupOpen(true); }}
+              <button type="button" onClick={() => { setLinkedMode("whatsapp"); setLinkedWhatsappListOpen(true); setLinkedLookupCompleted(false); }}
                 className="rounded-xl bg-[#123D2C] p-3 text-left text-sm font-black text-white">Pessoa com WhatsApp<span className="block text-[10px]">TOQUE PARA ABRIR</span></button>
               <button type="button" onClick={() => { setLinkedMode("sem-whatsapp"); setLinkedForm({ relationshipId: "", relatedPersonId: "", fullName: "", whatsapp: "", relationship: "" }); setLinkedFormPopupOpen(true); }}
                 className="rounded-xl bg-[#E9F2E7] p-3 text-left text-sm font-black text-[#123D2C]">Pessoa sem WhatsApp<span className="block text-[10px]">TOQUE PARA ABRIR</span></button>
             </div>
+
+          </div>
+        </Modal>
+      )}
+
+      {linkedEditorOpen && linkedWhatsappListOpen && !linkedFormPopupOpen && foundPerson && (
+        <Modal title="Pessoas vinculadas — WhatsApp" onClose={() => setLinkedWhatsappListOpen(false)}>
+          <div className="grid min-w-0 gap-3">
             <div className="grid gap-2 rounded-xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
               <p className="text-sm font-black text-[#123D2C]">Pessoas cadastradas</p>
               {(foundPerson.relatedConsulentes || []).filter((p) => Boolean(p.relationshipId) && p.relatedPersonId !== foundPerson.id).map((p) => (
@@ -4114,6 +4178,12 @@ export default function AgendamentoPilotoRecepcaoPage() {
                 <button type="button" disabled={saving} onClick={() => void saveRelatedConsulentePreferences()} className="rounded-xl bg-[#2F6B43] p-3 text-sm font-black text-white disabled:opacity-60">Salvar preferências da pessoa</button>
               </>}
             </div>
+            <button type="button" className="w-full rounded-xl bg-[#123D2C] p-3 font-black text-white" onClick={() => {
+              setLinkedMode("whatsapp");
+              setLinkedForm({ relationshipId: "", relatedPersonId: "", fullName: "", whatsapp: "", relationship: "" });
+              setLinkedLookupCompleted(false); setLinkedLookupFound(false); setLinkedFirstTime(null); setLinkedDefaultEntityId(""); setLinkedLookupDefaultEntity("");
+              setLinkedFormPopupOpen(true);
+            }}>Incluir novo vínculo</button>
           </div>
         </Modal>
       )}
@@ -4123,17 +4193,42 @@ export default function AgendamentoPilotoRecepcaoPage() {
           onClose={() => setLinkedFormPopupOpen(false)}>
           <div className="grid min-w-0 gap-3">
             <p className="text-sm font-semibold text-[#123D2C]">{linkedForm.relationshipId ? "Atualize a associação" : "Incluir novo vínculo"}</p>
-            <label className="grid min-w-0 gap-1 text-xs font-black">Nome completo
-              <input className="w-full min-w-0 rounded-lg border p-3" value={linkedForm.fullName} onChange={(e) => setLinkedForm((v) => ({ ...v, fullName: e.target.value }))} disabled={Boolean(linkedForm.relatedPersonId)} />
-            </label>
-            {linkedMode === "whatsapp" && <label className="grid min-w-0 gap-1 text-xs font-black">WhatsApp com DDD
-              <input className="w-full min-w-0 rounded-lg border p-3" inputMode="tel" value={linkedForm.whatsapp} onChange={(e) => setLinkedForm((v) => ({ ...v, whatsapp: e.target.value }))} disabled={Boolean(linkedForm.relatedPersonId)} />
+            {linkedMode === "whatsapp" && <label className="grid gap-1 text-xs font-black">WhatsApp com DDD
+              <input className="w-full min-w-0 rounded-lg border p-3" inputMode="tel" value={linkedForm.whatsapp} disabled={Boolean(linkedForm.relationshipId)} onChange={(e) => {
+                setLinkedForm((v) => ({ ...v, whatsapp: e.target.value, relatedPersonId: "", fullName: "" }));
+                setLinkedLookupCompleted(false); setLinkedLookupFound(false); setLinkedFirstTime(null); setLinkedDefaultEntityId("");
+              }} />
             </label>}
-            <label className="grid min-w-0 gap-1 text-xs font-black">Relação / parentesco
-              <input className="w-full min-w-0 rounded-lg border p-3" value={linkedForm.relationship} onChange={(e) => setLinkedForm((v) => ({ ...v, relationship: e.target.value }))} />
-            </label>
-            <button type="button" disabled={saving || linkedForm.relationship.trim().length === 0 || (!linkedForm.relatedPersonId && linkedForm.fullName.trim().length < 3)}
-              onClick={() => void saveLinkedPerson()} className="rounded-xl bg-[#123D2C] p-3 font-black text-white disabled:opacity-50">{saving ? "Salvando..." : linkedForm.relationshipId ? "Salvar edição" : "Incluir novo vínculo"}</button>
+            {linkedMode === "whatsapp" && !linkedForm.relationshipId && !linkedLookupCompleted &&
+              <button type="button" disabled={linkedLookupLoading} onClick={() => void lookupLinkedWhatsapp()}
+                className="rounded-xl bg-[#123D2C] p-3 text-sm font-black text-white disabled:opacity-40">{linkedLookupLoading ? "Consultando..." : "Consultar WhatsApp"}</button>}
+            {(linkedMode === "sem-whatsapp" || linkedForm.relationshipId || linkedLookupCompleted) && <>
+              {linkedMode === "whatsapp" && linkedLookupFound && <p className="rounded-xl bg-[#E9F2E7] p-3 text-xs text-[#123D2C]">Cadastro localizado. A identidade existente será reutilizada.</p>}
+              {linkedMode === "whatsapp" && linkedLookupFound && <p className="rounded-xl bg-[#F7FAF2] p-3 text-xs font-semibold">Entidade padrão: {linkedLookupDefaultEntity || "Não cadastrada"}</p>}
+              <label className="grid gap-1 text-xs font-black">Nome completo
+                <input className="w-full min-w-0 rounded-lg border p-3" value={linkedForm.fullName} onChange={(e) => setLinkedForm((v) => ({ ...v, fullName: e.target.value }))}
+                  disabled={Boolean(linkedForm.relatedPersonId)} />
+              </label>
+              {linkedMode === "whatsapp" && !linkedLookupFound && !linkedForm.relationshipId && <>
+                <p className="text-xs font-black text-[#123D2C]">É a primeira vez desta pessoa no TUCXA?</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => { setLinkedFirstTime(true); setLinkedDefaultEntityId(""); }} className={`rounded-lg border p-3 text-xs font-black ${linkedFirstTime === true ? "bg-[#123D2C] text-white" : "bg-white"}`}>Sim</button>
+                  <button type="button" onClick={() => setLinkedFirstTime(false)} className={`rounded-lg border p-3 text-xs font-black ${linkedFirstTime === false ? "bg-[#123D2C] text-white" : "bg-white"}`}>Não</button>
+                </div>
+                {linkedFirstTime === false && <label className="grid gap-1 text-xs font-black">Entidade padrão
+                  <select className="w-full min-w-0 rounded-lg border bg-white p-3" value={linkedDefaultEntityId} onChange={(e) => setLinkedDefaultEntityId(e.target.value)}>
+                    <option value="">Selecione a Entidade</option>
+                    {(payload?.entityCatalog || []).filter((entity) => entity.active && entity.appointmentEnabled).map((entity) => <option key={entity.id} value={entity.id}>{entityWithLine(entity.name)}</option>)}
+                  </select>
+                </label>}
+              </>}
+              <label className="grid gap-1 text-xs font-black">Relação / parentesco / amizade
+                <input className="w-full min-w-0 rounded-lg border p-3" value={linkedForm.relationship} onChange={(e) => setLinkedForm((v) => ({ ...v, relationship: e.target.value }))} />
+              </label>
+              <button type="button" disabled={saving || !linkedForm.relationship.trim() || (!linkedForm.relatedPersonId && linkedForm.fullName.trim().length < 3) ||
+                (linkedMode === "whatsapp" && !linkedForm.relationshipId && (!linkedLookupCompleted || (!linkedLookupFound && (linkedFirstTime === null || (linkedFirstTime === false && !linkedDefaultEntityId)))))}
+                onClick={() => void saveLinkedPerson()} className="rounded-xl bg-[#123D2C] p-3 text-sm font-black text-white disabled:opacity-50">{saving ? "Salvando..." : linkedForm.relationshipId ? "Salvar edição" : "Incluir novo vínculo"}</button>
+            </>}
           </div>
         </Modal>
       )}

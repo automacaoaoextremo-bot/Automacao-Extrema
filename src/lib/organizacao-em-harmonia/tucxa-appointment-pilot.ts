@@ -59,6 +59,8 @@ export type PilotPersonPreferences = {
   defaultEntityId: string;
   defaultEntityChangedAt: string;
   allowDifferentEntity: boolean;
+  allowFilhoCorrenteBooking: boolean;
+  declaredFirstTime: boolean;
   reminderWhatsappEnabled: boolean;
   reminderOffsetsHours: number[];
   receptionSummaryChannels: string[];
@@ -261,6 +263,7 @@ export type PilotConsulenteEligibilityIndex = {
   excludedWhatsappKeys: Set<string>;
   filhoPersonIds: Set<string>;
   entityPersonIds: Set<string>;
+  overridePersonIds: Set<string>;
   personWhatsappKeys: Map<string, string>;
 };
 
@@ -303,6 +306,7 @@ export async function loadPilotConsulenteEligibilityIndex(
     { data: memberships, error: membershipsError },
     { data: roles, error: rolesError },
     { data: entityLinks, error: entityLinksError },
+    { data: permittedPeople, error: overrideError },
   ] = await Promise.all([
     supabaseAdmin
       .from("oh_people")
@@ -328,13 +332,18 @@ export async function loadPilotConsulenteEligibilityIndex(
       .eq("organization_id", organizationId)
       .eq("active", true)
       .limit(3000),
+    supabaseAdmin.from("oh_tucxa_pilot_person_preferences")
+      .select("person_id").eq("organization_id", organizationId)
+      .eq("allow_filho_corrente_booking", true).limit(3000),
   ]);
 
   if (peopleError) throw peopleError;
   if (membershipsError) throw membershipsError;
   if (rolesError) throw rolesError;
   if (entityLinksError) throw entityLinksError;
+  if (overrideError) throw overrideError;
 
+  const overridePersonIds = new Set<string>((permittedPeople ?? []).map((row) => asText(row.person_id)).filter(Boolean));
   const personWhatsappKeys = new Map<string, string>();
   for (const person of people ?? []) {
     const personId = asText(person.id);
@@ -375,8 +384,10 @@ export async function loadPilotConsulenteEligibilityIndex(
       .filter(Boolean),
   );
 
+  // A excecao individual so se aplica a Filho da Corrente, nunca ao Cavalinho
+  // vinculado a Entidade. WhatsApp compartilhado de terceiros segue bloqueado.
   const excludedPersonIds = new Set<string>([
-    ...filhoPersonIds,
+    ...[...filhoPersonIds].filter((id) => !overridePersonIds.has(id)),
     ...entityPersonIds,
   ]);
 
@@ -396,6 +407,7 @@ export async function loadPilotConsulenteEligibilityIndex(
     excludedWhatsappKeys,
     filhoPersonIds,
     entityPersonIds,
+    overridePersonIds,
     personWhatsappKeys,
   };
 }
@@ -411,7 +423,7 @@ export function pilotConsulenteEligibilityReason(
   if (index.entityPersonIds.has(personId)) {
     return "Este cadastro está atualmente vinculado a uma Entidade/Cavalinho e não pode receber atendimentos de segunda ou terça.";
   }
-  if (index.filhoPersonIds.has(personId)) {
+  if (index.filhoPersonIds.has(personId) && !index.overridePersonIds.has(personId)) {
     return "Este cadastro é atualmente Filho da Corrente e não pode receber atendimentos de segunda ou terça.";
   }
   if (key && index.excludedWhatsappKeys.has(key)) {
@@ -578,7 +590,7 @@ export async function loadPilotSettings(organizationId: string): Promise<PilotSe
 export async function loadPilotPersonPreferences(organizationId: string, personId: string): Promise<PilotPersonPreferences> {
   const { data, error } = await supabaseAdmin
     .from("oh_tucxa_pilot_person_preferences")
-    .select("default_entity_id, default_entity_changed_at, allow_different_entity, reminder_whatsapp_enabled, reminder_offsets_hours, reception_summary_channels, reception_new_booking_channels, reception_link_request_channels, reception_entity_change_channels, reception_reschedule_channels, reception_summary_view_mode, reception_entity_order_mode, reception_open_acolhimento_on_login, consulente_open_upcoming_on_login")
+    .select("default_entity_id, default_entity_changed_at, allow_different_entity, allow_filho_corrente_booking, pilot_declared_first_time, reminder_whatsapp_enabled, reminder_offsets_hours, reception_summary_channels, reception_new_booking_channels, reception_link_request_channels, reception_entity_change_channels, reception_reschedule_channels, reception_summary_view_mode, reception_entity_order_mode, reception_open_acolhimento_on_login, consulente_open_upcoming_on_login")
     .eq("organization_id", organizationId)
     .eq("person_id", personId)
     .maybeSingle();
@@ -587,6 +599,8 @@ export async function loadPilotPersonPreferences(organizationId: string, personI
     defaultEntityId: asText(data?.default_entity_id),
     defaultEntityChangedAt: asText(data?.default_entity_changed_at),
     allowDifferentEntity: data?.allow_different_entity !== false,
+    allowFilhoCorrenteBooking: data?.allow_filho_corrente_booking === true,
+    declaredFirstTime: data?.pilot_declared_first_time === true,
     reminderWhatsappEnabled: data?.reminder_whatsapp_enabled !== false,
     reminderOffsetsHours: positiveHourList(data?.reminder_offsets_hours, []),
     receptionSummaryChannels: Array.isArray(data?.reception_summary_channels)
@@ -618,6 +632,8 @@ export async function savePilotPersonPreferences(
     person_id: personId,
     default_entity_id: input.defaultEntityId === undefined ? current.defaultEntityId || null : input.defaultEntityId || null,
     allow_different_entity: input.allowDifferentEntity ?? current.allowDifferentEntity,
+    allow_filho_corrente_booking: input.allowFilhoCorrenteBooking ?? current.allowFilhoCorrenteBooking,
+    pilot_declared_first_time: input.declaredFirstTime ?? current.declaredFirstTime,
     reminder_whatsapp_enabled: input.reminderWhatsappEnabled ?? current.reminderWhatsappEnabled,
     reminder_offsets_hours: input.reminderOffsetsHours === undefined
       ? current.reminderOffsetsHours
@@ -750,6 +766,10 @@ export async function resolvePilotConsulenteBookingRule(
   if (defaultEntityId) {
     return { mode: "default_entity", defaultEntityId };
   }
+
+  const declared = await loadPilotPersonPreferences(organizationId, personId);
+  if (declared.declaredFirstTime && !(await personHasUsedPilotFirstTimeEntity(organizationId, personId)))
+    return { mode: "first_time_only", defaultEntityId: "" };
 
   // Ajuste 77:
   // ausência de histórico digital ou cadastro recente NÃO significa Primeira Vez.
@@ -1216,6 +1236,9 @@ export function pilotReservationError(error: unknown) {
   if (message.includes("PILOT_MEDICAL_COMPANION_REQUIRED")) return { status: 409, message: "Para agendar Dr. Alexandre ou Dr. Augusto é obrigatório ter outro atendimento na mesma data." };
   if (message.includes("PILOT_MEDICAL_WEEKDAY_INVALID")) return { status: 409, message: "Esta Entidade médica não atende no dia escolhido." };
   if (message.includes("PILOT_MEDICAL_COMPANION_CANNOT_REMOVE")) return { status: 409, message: "Mantenha o atendimento principal enquanto houver agendamento médico na mesma data." };
+  if (message.includes("PILOT_DUPLICATE_SAME_ENTITY")) return { status: 409, message: "Esta pessoa ja possui uma reserva ativa com a mesma Entidade nesta data." };
+  if (message.includes("PILOT_FDC_NOT_ALLOWED")) return { status: 409, message: "Este Filho da Corrente nao possui a autorizacao individual para agendar segunda ou terca." };
+  if (message.includes("PILOT_ENTITY_PERSON_NOT_ALLOWED")) return { status: 409, message: "Este cadastro esta vinculado a Entidade/Cavalinho e nao pode ser agendado." };
   if (message.includes("PILOT_DUPLICATE_PERSON_DATE")) return { status: 409, message: "Esta pessoa já possui um agendamento ativo nesta data (exceto complemento médico autorizado)." };
   if (message.includes("PILOT_NO_AVAILABILITY")) return { status: 409, message: "A última vaga desta Entidade para a data escolhida acabou de ser preenchida." };
   return { status: 500, message: "Não foi possível concluir o agendamento agora." };

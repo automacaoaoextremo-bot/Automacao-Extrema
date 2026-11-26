@@ -766,7 +766,7 @@ async function buildPayload(organizationId: string, receptionPersonId: string, s
     loadPilotPersonPreferences(organizationId, receptionPersonId),
     supabaseAdmin
       .from("oh_spiritual_entities")
-      .select("id,name,slug,line,daily_capacity,pilot_display_order,pilot_display_order_monday,pilot_display_order_tuesday,active,appointment_enabled,appointment_notes,notes,pilot_cavalinho_whatsapp_enabled,pilot_accepts_first_time_transfers,pilot_allows_nondefault_booking")
+      .select("id,name,slug,line,daily_capacity,pilot_display_order,pilot_display_order_monday,pilot_display_order_tuesday,active,appointment_enabled,appointment_notes,notes,pilot_cavalinho_whatsapp_enabled,pilot_accepts_first_time_transfers,pilot_allows_nondefault_booking,pilot_allows_same_day_booking")
       .eq("organization_id", organizationId)
       .order("name"),
     supabaseAdmin
@@ -814,6 +814,7 @@ async function buildPayload(organizationId: string, receptionPersonId: string, s
       cavalinhoWhatsappEnabled: entity.pilot_cavalinho_whatsapp_enabled === true,
       acceptsFirstTimeTransfers: entity.pilot_accepts_first_time_transfers === true,
       allowsNondefaultBooking: entity.pilot_allows_nondefault_booking === true,
+      allowsSameDayBooking: entity.pilot_allows_same_day_booking === true,
       mondayOccurrences: Array.from(new Set(schedule.mondayOccurrences)).sort((a, b) => a - b),
       tuesdayOccurrences: Array.from(new Set(schedule.tuesdayOccurrences)).sort((a, b) => a - b),
       mediums: (contacts.get(asText(entity.id)) ?? []).map((item) => ({ ...item, whatsappUrl: whatsappUrl(item.whatsapp) })),
@@ -1309,6 +1310,32 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true });
     }
     // AG28: somente a Recepção pode administrar vínculos. Não gera login em nome de terceiros.
+    if (action === "lookup-linked-whatsapp") {
+      const phone = normalizeBrazilPhone(body.whatsapp);
+      if (!/^\d{11}$/.test(phone)) return NextResponse.json({ error: "Informe o WhatsApp com DDD (11 digitos)." }, { status: 400 });
+      const variants = [phone, `55${phone}`];
+      const [{ data: direct, error: directError }, { data: normalized, error: normalizedError }] = await Promise.all([
+        supabaseAdmin.from("oh_people").select("id,full_name,whatsapp,normalized_whatsapp,active").eq("organization_id", context.organizationId).eq("active", true).in("whatsapp", variants).limit(10),
+        supabaseAdmin.from("oh_people").select("id,full_name,whatsapp,normalized_whatsapp,active").eq("organization_id", context.organizationId).eq("active", true).in("normalized_whatsapp", variants).limit(10),
+      ]);
+      if (directError || normalizedError) throw directError || normalizedError;
+      const matches = [...new Map([...(direct ?? []), ...(normalized ?? [])]
+        .filter((person) => normalizeBrazilPhone(person.normalized_whatsapp || person.whatsapp) === phone)
+        .map((person) => [person.id, person])).values()];
+      if (matches.length > 1) return NextResponse.json({ error: "Existem cadastros duplicados para esse WhatsApp. Solicite conciliacao antes de vincular." }, { status: 409 });
+      const person = matches[0];
+      if (!person) return NextResponse.json({ ok: true, found: false, whatsapp: phone });
+      const preferences = await loadPilotPersonPreferences(context.organizationId, person.id);
+      const { data: usual, error: usualError } = preferences.defaultEntityId
+        ? await supabaseAdmin.from("oh_spiritual_entities").select("name").eq("organization_id", context.organizationId).eq("id", preferences.defaultEntityId).maybeSingle()
+        : { data: null, error: null };
+      if (usualError) throw usualError;
+      return NextResponse.json({ ok: true, found: true, person: {
+        id: person.id, fullName: person.full_name, whatsapp: phone,
+        defaultEntityId: preferences.defaultEntityId, defaultEntityName: usual?.name || "",
+        declaredFirstTime: preferences.declaredFirstTime,
+      } });
+    }
     if (action === "manage-linked-person") {
       const ownerId = asText(body.ownerPersonId);
       const relationshipId = asText(body.relationshipId);
@@ -1382,17 +1409,45 @@ export async function POST(request: Request) {
       if (targetId === ownerId) return NextResponse.json({ error: "Não é possível vincular o próprio cadastro." }, { status: 409 });
       if (!targetId && (requestedName.length < 3 || requestedName.length > 160))
         return NextResponse.json({ error: "Informe o nome completo da pessoa." }, { status: 400 });
+      const newlyIdentified = !targetId;
+      const declaredFirstTime = body.firstTime === true;
+      const defaultEntityId = asText(body.defaultEntityId);
+      if (newlyIdentified && phone) {
+        if (typeof body.firstTime !== "boolean") return NextResponse.json({ error: "Informe se e a Primeira Vez." }, { status: 400 });
+        if (!declaredFirstTime && !defaultEntityId) return NextResponse.json({ error: "Selecione a Entidade padrao." }, { status: 400 });
+        if (!declaredFirstTime) {
+          const { data: usualEntity, error: usualError } = await supabaseAdmin.from("oh_spiritual_entities")
+            .select("id").eq("organization_id", context.organizationId).eq("id", defaultEntityId)
+            .eq("active", true).eq("appointment_enabled", true).maybeSingle();
+          if (usualError) throw usualError;
+          if (!usualEntity?.id) return NextResponse.json({ error: "Entidade padrao invalida." }, { status: 409 });
+        }
+      }
       if (!targetId) {
         const { data: created, error: createError } = await supabaseAdmin.from("oh_people")
           .insert({ organization_id: context.organizationId, full_name: targetName, whatsapp: phone || null,
             active: true, notes: "Cadastro individual criado pela Recepção para agendamentos vinculados." }).select("id").single();
         if (createError) throw createError;
         createdId = asText(created.id); targetId = createdId;
+        if (phone) {
+          try {
+            await savePilotPersonPreferences(context.organizationId, createdId, {
+              defaultEntityId: declaredFirstTime ? "" : defaultEntityId,
+              declaredFirstTime,
+            });
+          } catch (preferenceError) {
+            await supabaseAdmin.from("oh_people").delete().eq("organization_id", context.organizationId).eq("id", createdId);
+            throw preferenceError;
+          }
+        }
       }
       const { data: person, error: personError } = await supabaseAdmin.from("oh_people")
         .select("id,full_name,whatsapp,active").eq("organization_id", context.organizationId).eq("id", targetId).maybeSingle();
       if (personError) throw personError;
       if (!person?.id || person.active === false) return NextResponse.json({ error: "Pessoa vinculada não está ativa." }, { status: 409 });
+      if (phone && normalizeBrazilPhone(person.whatsapp) !== phone) {
+        return NextResponse.json({ error: "WhatsApp informado nao corresponde a pessoa selecionada." }, { status: 409 });
+      }
       targetName = asText(person.full_name);
       const updatePayload = { related_person_id: targetId, related_name: targetName, relationship,
         active: true, approval_status: "booking_only", updated_at: new Date().toISOString() };
@@ -2235,7 +2290,7 @@ export async function POST(request: Request) {
       }
       const { data: current, error: lookupError } = await supabaseAdmin
         .from("oh_consulente_appointments")
-        .select("id,person_id,entity_id,appointment_date,consulente_name,status,arrival_status,forwarded_at")
+        .select("id,person_id,entity_id,appointment_date,consulente_name,whatsapp,notification_contact_whatsapp,status,arrival_status,forwarded_at")
         .eq("organization_id", context.organizationId)
         .eq("id", appointmentId)
         .maybeSingle();
@@ -2308,6 +2363,32 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: changeError.message, requestId: code }, { status: 409 });
       }
       const confirmed = Array.isArray(changed) ? changed[0] : changed;
+      const confirmationUrl = buildTucxaConfirmationUrl(token);
+      // Envio somente apos persistir o reagendamento; nunca no Preview.
+      // O fluxo usa os mesmos campos individuais de nome/data/Entidade/link.
+      let notification: { sent: boolean; status: string; error?: string } = {
+        sent: false, status: "disabled", error: "Envio automatico ainda desabilitado."
+      };
+      if (process.env.VERCEL_ENV === "production" && process.env.TUCXA_AG30_RESCHEDULE_WHATSAPP_ENABLED === "true") {
+        let recipient = normalizeBrazilPhone(current.whatsapp);
+        if (personId) {
+          const { data: recipientPerson, error: recipientError } = await supabaseAdmin.from("oh_people")
+            .select("whatsapp,normalized_whatsapp").eq("organization_id", context.organizationId)
+            .eq("id", personId).maybeSingle();
+          if (recipientError) console.error("[AG30 reagendamento pessoa]", recipientError);
+          else recipient = normalizeBrazilPhone(recipientPerson?.normalized_whatsapp || recipientPerson?.whatsapp) || recipient;
+        }
+        if (!recipient) recipient = normalizeBrazilPhone(current.notification_contact_whatsapp);
+        if (recipient.length === 11) {
+          const { data: targetEntity, error: targetEntityError } = await supabaseAdmin.from("oh_spiritual_entities")
+            .select("name").eq("organization_id", context.organizationId).eq("id", targetEntityId).maybeSingle();
+          if (targetEntityError) console.error("[AG30 reagendamento entidade]", targetEntityError);
+          const sent = await sendTucxaAppointmentWhatsapp({ kind: "reschedule", fullName: asText(current.consulente_name),
+            whatsapp: recipient, appointmentDate: targetDate, entityName: asText(targetEntity?.name) || "TUCXA",
+            confirmationUrl, appointmentOrder: Number(confirmed?.confirmed_order ?? 0) || null });
+          notification = { sent: sent.sent, status: sent.sent ? "sent" : "failed", error: sent.error };
+        } else notification = { sent: false, status: "missing_whatsapp", error: "Nao ha WhatsApp de contato valido." };
+      }
       await sendTucxaReceptionEventNotice({ organizationId: context.organizationId,
         eventId: crypto.randomUUID(), kind: "reschedule", details: [
           "TUCXA — REAGENDAMENTO", `Consulente: ${asText(current.consulente_name)}`,
@@ -2316,8 +2397,10 @@ export async function POST(request: Request) {
           `Agendamento: ${appointmentId}`].join("\n") });
       return NextResponse.json({ ok: true, appointmentId, appointmentDate: targetDate,
         entityId: targetEntityId, order: confirmed?.confirmed_order ?? null,
-        confirmationUrl: buildTucxaConfirmationUrl(token),
-        message: "Reagendamento realizado. Envie o novo link de confirmação ao Consulente; o anterior foi substituído." });
+        confirmationUrl, notification,
+        message: notification.sent
+          ? "Reagendamento salvo. Fluxo do BotConversa acionado; confira a entrega nos registros do provedor."
+          : "Reagendamento salvo. Aviso automatico nao confirmado; use o link individual para contato manual." });
     }
 
     if (action === "finalize-operational-stage") {
@@ -2795,7 +2878,10 @@ export async function POST(request: Request) {
       if (!requestedLetter) {
         return NextResponse.json({ ok: true, letters: "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split(""), letter: "", people: [] });
       }
-      const people = await loadReceptionConsulentes(context.organizationId);
+      const people = asText(body.purpose) === "cadastro"
+        ? (await supabaseAdmin.from("oh_people").select("id,full_name,whatsapp,email,notification_email,normalized_whatsapp,active,registration_source")
+            .eq("organization_id", context.organizationId).eq("active", true).limit(1500)).data ?? []
+        : await loadReceptionConsulentes(context.organizationId);
       let eligiblePeople = people;
 
       if (appointmentDate) {
@@ -2842,6 +2928,7 @@ export async function POST(request: Request) {
             defaultEntityId: preferences.defaultEntityId,
             defaultEntityName,
             allowDifferentEntity: preferences.allowDifferentEntity,
+            allowFilhoCorrenteBooking: preferences.allowFilhoCorrenteBooking,
           };
         }),
       );
@@ -2873,7 +2960,7 @@ export async function POST(request: Request) {
         asText(person.id),
         person.normalized_whatsapp || person.whatsapp,
       );
-      if (eligibilityReason) {
+      if (eligibilityReason && asText(body.purpose) !== "cadastro") {
         return NextResponse.json({ error: eligibilityReason, requestId: code }, { status: 409 });
       }
 
@@ -2902,6 +2989,7 @@ export async function POST(request: Request) {
           defaultEntityId: preferences.defaultEntityId,
           defaultEntityName,
           allowDifferentEntity: preferences.allowDifferentEntity,
+          allowFilhoCorrenteBooking: preferences.allowFilhoCorrenteBooking,
           relatedConsulentes,
           whatsappUrl: whatsappUrl(asText(person.whatsapp)),
         },
@@ -3100,16 +3188,23 @@ export async function POST(request: Request) {
       const email = asText(body.email).toLowerCase();
       const defaultEntityId = asText(body.defaultEntityId);
       const allowDifferentEntity = asBoolean(body.allowDifferentEntity, true);
+      const allowFilhoCorrenteBooking = body.allowFilhoCorrenteBooking === true;
       if (!personId || !fullName || whatsapp.length < 10) return NextResponse.json({ error: "Informe pessoa, nome e telefone válidos.", requestId: code }, { status: 400 });
       if (email && !email.includes("@")) return NextResponse.json({ error: "E-mail inválido." }, { status: 400 });
       if (!defaultEntityId) {
         return NextResponse.json({ error: "Selecione a Entidade padrão do Consulente.", requestId: code }, { status: 400 });
       }
 
+      // A Recepcao pode editar o cadastro de Filho da Corrente, mas somente
+      // o parametro individual aprovado permite agendar (default false).
       const eligibilityIndex = await loadPilotConsulenteEligibilityIndex(context.organizationId);
-      const eligibilityReason = pilotConsulenteEligibilityReason(eligibilityIndex, personId, whatsapp);
-      if (eligibilityReason) {
-        return NextResponse.json({ error: eligibilityReason, requestId: code }, { status: 409 });
+      if (!allowFilhoCorrenteBooking) {
+        const eligibilityReason = pilotConsulenteEligibilityReason(eligibilityIndex, personId, whatsapp);
+        if (eligibilityReason && !eligibilityIndex.filhoPersonIds.has(personId)) {
+          return NextResponse.json({ error: eligibilityReason, requestId: code }, { status: 409 });
+        }
+      } else if (eligibilityIndex.entityPersonIds.has(personId)) {
+        return NextResponse.json({ error: "Esta excecao nao se aplica a Cavalinhos/Entidades.", requestId: code }, { status: 409 });
       }
 
       const { data: defaultEntity, error: defaultEntityError } = await supabaseAdmin
@@ -3132,7 +3227,7 @@ export async function POST(request: Request) {
         .maybeSingle();
       if (personError) throw personError;
       if (!person?.id) return NextResponse.json({ error: "Consulente não localizado." }, { status: 404 });
-      await savePilotPersonPreferences(context.organizationId, personId, { defaultEntityId, allowDifferentEntity });
+      await savePilotPersonPreferences(context.organizationId, personId, { defaultEntityId, allowDifferentEntity, allowFilhoCorrenteBooking });
       return NextResponse.json({ ok: true, message: "Cadastro do Consulente atualizado." });
     }
 
@@ -3152,6 +3247,7 @@ export async function POST(request: Request) {
       const cavalinhoWhatsappEnabled = body.cavalinhoWhatsappEnabled === true;
       const acceptsFirstTimeTransfers = body.acceptsFirstTimeTransfers === true;
       const allowsNondefaultBooking = body.allowsNondefaultBooking === true;
+      const allowsSameDayBooking = body.allowsSameDayBooking === true;
       const mondayOccurrences = occurrenceList(body.mondayOccurrences);
       const tuesdayOccurrences = occurrenceList(body.tuesdayOccurrences);
       if (!name) return NextResponse.json({ error: "Informe o nome da Entidade." }, { status: 400 });
@@ -3175,6 +3271,7 @@ export async function POST(request: Request) {
             pilot_cavalinho_whatsapp_enabled: cavalinhoWhatsappEnabled,
             pilot_accepts_first_time_transfers: acceptsFirstTimeTransfers,
             pilot_allows_nondefault_booking: allowsNondefaultBooking,
+            pilot_allows_same_day_booking: allowsSameDayBooking,
             active: entityActive,
             updated_at: new Date().toISOString(),
           })
@@ -3218,6 +3315,7 @@ export async function POST(request: Request) {
             pilot_cavalinho_whatsapp_enabled: cavalinhoWhatsappEnabled,
             pilot_accepts_first_time_transfers: acceptsFirstTimeTransfers,
             pilot_allows_nondefault_booking: allowsNondefaultBooking,
+            pilot_allows_same_day_booking: allowsSameDayBooking,
             appointment_notes: description || "Cadastro realizado pela Recepção no piloto de agendamentos.",
             notes: "Cadastro realizado pelo piloto de Agendamento.",
             active: entityActive,
