@@ -181,7 +181,7 @@ async function payload(request: Request) {
     loadPilotAppointments(context.organizationId, start, end, context.personId),
     target.personId === context.personId ? Promise.resolve(null) : loadPilotAppointments(context.organizationId, start, end, target.personId),
   ]);
-  // AG29: um agendamento comum habilita apenas UMA reserva complementar medica.
+  // AG30: agendamentos adicionais dependem da configuracao individual da Entidade.
   const activeByDate = new Map<string, string[]>();
   for (const item of (targetAppointments ?? appointments).filter((item) => PILOT_ACTIVE_STATUSES.includes(item.status))) {
     const ids = activeByDate.get(item.appointmentDate) ?? [];
@@ -190,11 +190,11 @@ async function payload(request: Request) {
   }
   const defaultEntityId = bookingRule.mode === "default_entity" ? bookingRule.defaultEntityId : "";
   const { data: entityCatalog, error: catalogError } = await supabaseAdmin.from("oh_spiritual_entities")
-    .select("id,pilot_allows_nondefault_booking,pilot_requires_companion_booking")
+    .select("id,pilot_allows_nondefault_booking,pilot_allows_same_day_booking")
     .eq("organization_id", context.organizationId).eq("active", true).eq("appointment_enabled", true);
   if (catalogError) throw catalogError;
   const eligibleEntityIds = new Set((entityCatalog ?? []).filter((entity) => entity.pilot_allows_nondefault_booking === true).map((entity) => asText(entity.id)));
-  const medicalEntityIds = new Set((entityCatalog ?? []).filter((entity) => entity.pilot_requires_companion_booking === true).map((entity) => asText(entity.id)));
+  const sameDayAllowedIds = new Set((entityCatalog ?? []).filter((entity) => entity.pilot_allows_same_day_booking === true).map((entity) => asText(entity.id)));
   // AG27: processa as datas com concorrência limitada; antes eram consultas
   // estritamente sequenciais, tornando o primeiro carregamento lento no celular.
   const dateOptions: DateEntityOption[] = [];
@@ -213,11 +213,8 @@ async function payload(request: Request) {
         return entity.id === defaultEntityId || eligibleEntityIds.has(entity.id);
       });
       const bookings = activeByDate.get(date.date) ?? [];
-      const hasMedical = bookings.some((id) => medicalEntityIds.has(id));
-      const hasRegular = bookings.some((id) => !medicalEntityIds.has(id));
-      const allowed = authorized.filter((entity) => medicalEntityIds.has(entity.id)
-        ? hasRegular && !hasMedical
-        : bookings.length === 0);
+      const allowed = authorized.filter((entity) => !bookings.includes(entity.id)
+         && (bookings.length === 0 || sameDayAllowedIds.has(entity.id)));
       return {
         date: date.date, label: date.label, alreadyBooked: bookings.length > 0 && !allowed.length,
         entities: allowed.map((entity) => ({ id: entity.id, name: entity.name,
@@ -367,19 +364,14 @@ export async function POST(request: Request) {
       const today = todayInSaoPaulo();
       const alreadyBooked = await loadPilotAppointments(context.organizationId, today, appointmentDate, target.personId);
       const activeBookings = alreadyBooked.filter((item) => item.appointmentDate === appointmentDate && PILOT_ACTIVE_STATUSES.includes(item.status));
-      const { data: medicalRows, error: medicalError } = await supabaseAdmin.from("oh_spiritual_entities")
-        .select("id,pilot_requires_companion_booking").eq("organization_id", context.organizationId)
-        .eq("active", true).eq("pilot_requires_companion_booking", true);
-      if (medicalError) throw medicalError;
-      const medicalIds = new Set((medicalRows ?? []).map((row) => asText(row.id)));
-      const chosenMedical = medicalIds.has(entity.id);
-      const regularExists = activeBookings.some((item) => !medicalIds.has(item.entityId));
-      const medicalExists = activeBookings.some((item) => medicalIds.has(item.entityId));
-      if (chosenMedical && (!regularExists || medicalExists))
-        return NextResponse.json({ error: medicalExists ? "Já existe atendimento médico nesta data." :
-          "Agende primeiro um atendimento com outra Entidade na mesma data para poder escolher a linha médica." }, { status: 409 });
-      if (!chosenMedical && activeBookings.length > 0)
-        return NextResponse.json({ error: "Esta pessoa já tem um agendamento ativo nesta data. Só é permitido acrescentar um atendimento da linha médica." }, { status: 409 });
+      const { data: selectedPermission, error: permissionError } = await supabaseAdmin.from("oh_spiritual_entities")
+        .select("pilot_allows_same_day_booking").eq("organization_id", context.organizationId)
+        .eq("id", entity.id).maybeSingle();
+      if (permissionError) throw permissionError;
+      if (activeBookings.some((item) => item.entityId === entity.id))
+        return NextResponse.json({ error: "A pessoa ja possui uma reserva ativa com esta mesma Entidade na data." }, { status: 409 });
+      if (activeBookings.length > 0 && selectedPermission?.pilot_allows_same_day_booking !== true)
+        return NextResponse.json({ error: "Esta Entidade nao esta autorizada a receber um agendamento adicional na mesma data." }, { status: 409 });
       const token = createConfirmationToken();
       const deadline = confirmationDeadlineIso(appointmentDate, settings.confirmationCutoff);
       const { data: reservationData, error: reservationError } = await supabaseAdmin.rpc("oh_tucxa_pilot_reserve_appointment", {
