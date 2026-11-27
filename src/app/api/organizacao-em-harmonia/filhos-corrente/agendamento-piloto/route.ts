@@ -899,6 +899,10 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   const code = requestId();
+  // AG32: registra a etapa do erro sem expor nomes, telefones ou tokens ao cliente.
+  let diagnosticAction = "initializing";
+  let bookingStep = "not-started";
+  let bookedAppointmentId = "";
   try {
     const context = await currentPilotReception(request);
     if (!context?.canManage) {
@@ -906,6 +910,7 @@ export async function POST(request: Request) {
     }
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const action = asText(body.action);
+    diagnosticAction = action;
     const settings = await loadPilotSettings(context.organizationId);
 
     if (action === "set-service-priority") {
@@ -1532,6 +1537,7 @@ export async function POST(request: Request) {
     }
 
     if (action === "book") {
+      bookingStep = "validacao-pre-reserva";
       const targetPersonId = asText(body.targetPersonId);
       const entityId = asText(body.entityId);
       const appointmentDate = asText(body.appointmentDate);
@@ -1755,6 +1761,8 @@ export async function POST(request: Request) {
       const notificationPhone = contactMode === "alternate" ? (relatedPerson?.whatsapp || ownPhone) : ownPhone;
       const notificationName = contactMode === "alternate" && relatedPerson?.whatsapp
         ? (relatedPerson.full_name || "Consulente") : (asText(person.full_name) || "Consulente");
+      // Esta RPC e a unica fonte de verdade transacional para a regra AG31.
+      bookingStep = "rpc-reserva";
       const { data: reservationData, error: reservationError } = await supabaseAdmin.rpc("oh_tucxa_pilot_reserve_appointment", {
         p_organization_id: context.organizationId,
         // Quando a pessoa atendida já possui cadastro próprio e está vinculada
@@ -1781,6 +1789,9 @@ export async function POST(request: Request) {
         confirmed_status?: string;
       } | null;
       if (!reservation?.appointment_id) throw new Error("Reserva criada sem identificador.");
+      // A partir daqui, a reserva ja pode existir mesmo que outro processamento falhe.
+      bookedAppointmentId = reservation.appointment_id;
+      bookingStep = "apos-reserva-atualizar-contato";
 
       const { error: contactUpdateError } = await supabaseAdmin
         .from("oh_consulente_appointments")
@@ -1795,6 +1806,7 @@ export async function POST(request: Request) {
         .eq("organization_id", context.organizationId)
         .eq("id", reservation.appointment_id);
       if (contactUpdateError) throw contactUpdateError;
+      bookingStep = "apos-reserva-preferencias-e-vinculos";
 
       if (contactMode !== "alternate" && !firstTimeBooking) {
         // Ajuste 77: quando a Recepção registra uma pessoa sem Entidade padrão
@@ -1891,9 +1903,20 @@ export async function POST(request: Request) {
       }
 
       const link = buildTucxaConfirmationUrl(token);
-      await sendNewBookingReceptionNotices({ organizationId: context.organizationId,
-        appointmentId: reservation.appointment_id, fullName: appointmentPersonName,
-        appointmentDate, entityName: entity.name, confirmationUrl: link });
+      bookingStep = "apos-reserva-avisos";
+      // AG32: falha em aviso nao desfaz a reserva ja confirmada pelo banco.
+      try {
+        await sendNewBookingReceptionNotices({ organizationId: context.organizationId,
+          appointmentId: reservation.appointment_id, fullName: appointmentPersonName,
+          appointmentDate, entityName: entity.name, confirmationUrl: link });
+      } catch (noticeError) {
+        const notice = asRecord(noticeError);
+        console.error("[TUCXA AG32 aviso recepcao falhou apos reserva]", {
+          requestId: code, appointmentId: reservation.appointment_id,
+          code: asText(notice.code),
+        });
+      }
+      bookingStep = "apos-reserva-whatsapp";
       const whatsappDispatch = notificationPhone
         ? await sendTucxaAppointmentWhatsapp({
             kind: "confirmation",
@@ -1905,6 +1928,13 @@ export async function POST(request: Request) {
             confirmationUrl: link,
             appointmentOrder: Number(reservation.confirmed_order ?? 0) || null,
             individualNotice: TUCXA_INDIVIDUAL_NOTICE,
+          }).catch((dispatchError: unknown) => {
+            const info = asRecord(dispatchError);
+            console.error("[TUCXA AG32 WhatsApp falhou apos reserva]", {
+              requestId: code, appointmentId: reservation.appointment_id,
+              code: asText(info.code),
+            });
+            return { sent: false, provider: "disabled" as const, error: "Falha no envio automatico; utilize o link manual." };
           })
         : { sent: false, provider: "disabled" as const, error: "Telefone não informado." };
 
@@ -3461,7 +3491,28 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Ação não reconhecida.", requestId: code }, { status: 400 });
   } catch (error) {
     const friendly = pilotReservationError(error);
-    if (friendly.status >= 500) console.error("[TUCXA piloto recepcao POST]", { requestId: code, error });
+    const info = asRecord(error);
+    // AG32: log estruturado apenas no servidor; correlacione pelo requestId.
+    if (friendly.status >= 500 || (diagnosticAction === "book" && bookedAppointmentId)) {
+      console.error("[TUCXA piloto recepcao POST AG32]", {
+        requestId: code,
+        action: diagnosticAction,
+        stage: bookingStep,
+        bookingPersisted: Boolean(bookedAppointmentId),
+        appointmentId: bookedAppointmentId || undefined,
+        dbCode: asText(info.code),
+        dbMessage: asText(info.message).slice(0, 500),
+        dbHint: asText(info.hint).slice(0, 250),
+      });
+    }
+    if (diagnosticAction === "book" && bookedAppointmentId) {
+      // Nunca sugerir repeticao automatica: o INSERT ja foi concluido.
+      return NextResponse.json({
+        error: "A reserva pode ter sido criada, mas houve falha ao finalizar os avisos/dados. Verifique a lista antes de tentar novamente.",
+        requestId: code,
+        bookingMayExist: true,
+      }, { status: 500 });
+    }
     return NextResponse.json({ error: friendly.message, requestId: code }, { status: friendly.status });
   }
 }
