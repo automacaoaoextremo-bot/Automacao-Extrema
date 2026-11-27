@@ -1,0 +1,1 @@
+SELECT to_regprocedure('public.oh_tucxa_pilot_mark_arrival_ag34(uuid,uuid,uuid,text)') IS NOT NULL AS ag34_instalada, to_regprocedure('public.oh_tucxa_pilot_mark_arrival(uuid,uuid,uuid,text)') IS NOT NULL AS rpc_original;
