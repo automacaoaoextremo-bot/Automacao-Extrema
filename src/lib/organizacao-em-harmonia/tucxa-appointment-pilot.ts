@@ -1239,7 +1239,8 @@ export function pilotReservationError(error: unknown) {
   if (message.includes("PILOT_DUPLICATE_SAME_ENTITY")) return { status: 409, message: "Esta pessoa ja possui uma reserva ativa com a mesma Entidade nesta data." };
   if (message.includes("PILOT_FDC_NOT_ALLOWED")) return { status: 409, message: "Este Filho da Corrente nao possui a autorizacao individual para agendar segunda ou terca." };
   if (message.includes("PILOT_ENTITY_PERSON_NOT_ALLOWED")) return { status: 409, message: "Este cadastro esta vinculado a Entidade/Cavalinho e nao pode ser agendado." };
-  if (message.includes("PILOT_DUPLICATE_PERSON_DATE")) return { status: 409, message: "Esta pessoa já possui um agendamento ativo nesta data (exceto complemento médico autorizado)." };
+  if (message.includes("PILOT_MAX_TWO_PERSON_DATE")) return { status: 409, message: "O limite é de dois agendamentos ativos por pessoa e data, sempre com Entidades diferentes." };
+  if (message.includes("PILOT_DUPLICATE_PERSON_DATE")) return { status: 409, message: "Dois agendamentos no mesmo dia exigem Entidades diferentes e autorização em pelo menos uma delas." };
   if (message.includes("PILOT_NO_AVAILABILITY")) return { status: 409, message: "A última vaga desta Entidade para a data escolhida acabou de ser preenchida." };
   return { status: 500, message: "Não foi possível concluir o agendamento agora." };
 }

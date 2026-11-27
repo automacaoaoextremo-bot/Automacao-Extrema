@@ -3870,8 +3870,8 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       <p className="px-2 text-[11px] font-semibold text-slate-600">Habilita apenas a realocação feita pela Recepção. Não altera as regras de agendamento inicial de Primeira Vez.</p>
                       </div>
                       <Toggle checked={editEntity.allowsNondefaultBooking} onChange={(allowsNondefaultBooking) => setEditEntity((current) => ({ ...current, allowsNondefaultBooking }))} label="Permitir que um consulente agende com esta Entidade mesmo não sendo sua Entidade padrão" />
-                      <Toggle checked={editEntity.allowsSameDayBooking} onChange={(allowsSameDayBooking) => setEditEntity((current) => ({ ...current, allowsSameDayBooking }))} label="Permitir agendamento adicional com esta Entidade na mesma data" />
-                      <p className="px-2 text-[11px] font-semibold text-slate-600">Desativado por padrão. Não permite duas reservas da mesma pessoa com a própria Entidade.</p>
+                      <Toggle checked={editEntity.allowsSameDayBooking} onChange={(allowsSameDayBooking) => setEditEntity((current) => ({ ...current, allowsSameDayBooking }))} label="Permitir agendamento com esta Entidade e outra Entidade na mesma data" />
+                      <p className="px-2 text-[11px] font-semibold text-slate-600">Desativado por padrão. Quando habilitado, permite dois agendamentos da mesma pessoa no dia, desde que sejam com Entidades diferentes e pelo menos uma delas tenha esta permissão. Nunca permite repetir a mesma Entidade, nem fazer um terceiro agendamento na data.</p>
                             </section>}
                             {entityEditorSection === "dias" && <section>                      <section className="rounded-xl border border-[#123D2C]/10 bg-[#F7FAF2] p-2.5">
                         <h3 className="text-sm font-black text-[#123D2C]">Dias de atendimento</h3>
