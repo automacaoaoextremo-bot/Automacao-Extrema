@@ -1229,7 +1229,9 @@ export async function loadPilotAppointments(organizationId: string, startDate: s
 }
 
 export function pilotReservationError(error: unknown) {
-  const message = error instanceof Error ? error.message : asText(asRecord(error).message);
+  const info = asRecord(error);
+  const message = error instanceof Error ? error.message : asText(info.message);
+  const dbCode = asText(info.code);
   if (message.includes("PILOT_DATE_NOT_ALLOWED")) return { status: 409, message: "O piloto está disponível somente nas segundas e terças previstas no calendário." };
   if (message.includes("PILOT_ENTITY_NOT_SCHEDULED")) return { status: 409, message: "Esta Entidade não está prevista para esta data." };
   if (message.includes("PILOT_ENTITY_SUSPENDED")) return { status: 409, message: "O atendimento desta Entidade está suspenso para a data escolhida." };
@@ -1242,5 +1244,15 @@ export function pilotReservationError(error: unknown) {
   if (message.includes("PILOT_MAX_TWO_PERSON_DATE")) return { status: 409, message: "O limite é de dois agendamentos ativos por pessoa e data, sempre com Entidades diferentes." };
   if (message.includes("PILOT_DUPLICATE_PERSON_DATE")) return { status: 409, message: "Dois agendamentos no mesmo dia exigem Entidades diferentes e autorização em pelo menos uma delas." };
   if (message.includes("PILOT_NO_AVAILABILITY")) return { status: 409, message: "A última vaga desta Entidade para a data escolhida acabou de ser preenchida." };
+  // AG32: erros estruturais nao devem parecer uma simples regra de duplicidade.
+  if (["PGRST202", "42883", "42P01", "42703"].includes(dbCode)) {
+    return { status: 503, message: "O sistema de agendamentos precisa de atualização no banco. Informe o código da ocorrência à administração." };
+  }
+  if (dbCode === "23505") {
+    return { status: 409, message: "Houve conflito ao registrar o agendamento. Confira se a reserva já existe antes de tentar novamente." };
+  }
+  if (dbCode === "40001" || dbCode === "40P01") {
+    return { status: 409, message: "Houve concorrência entre agendamentos. Atualize as vagas e tente novamente." };
+  }
   return { status: 500, message: "Não foi possível concluir o agendamento agora." };
 }
