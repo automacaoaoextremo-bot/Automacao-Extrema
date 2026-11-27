@@ -11,6 +11,8 @@ import {
 } from "@/lib/organizacao-em-harmonia/tucxa-appointment-pilot";
 import { firstTwoPersonNames } from "@/lib/organizacao-em-harmonia/person-display";
 
+import { dualAttendanceLabels } from "@/lib/organizacao-em-harmonia/tucxa-dual-attendance";
+
 export const dynamic = "force-dynamic";
 
 type DbRow = Record<string, unknown>;
@@ -249,7 +251,7 @@ export async function GET(request: Request) {
       // não apenas para aquelas presentes nos agendamentos consultados.
       const { data: orderedEntities, error: orderError } = await supabaseAdmin
         .from("oh_spiritual_entities")
-        .select("id,pilot_display_order,pilot_display_order_monday,pilot_display_order_tuesday")
+        .select("id,name,line,pilot_display_order,pilot_display_order_monday,pilot_display_order_tuesday")
         .eq("organization_id", context.organizationId);
       if (orderError) throw orderError;
       const entityOrderIndex = new Map((orderedEntities ?? []).map((entity) => [text(entity.id), {
@@ -335,6 +337,7 @@ export async function GET(request: Request) {
         }
       }
 
+      const dualLabels = dualAttendanceLabels(source.map(item => ({ id: text(item.id), personId: text(item.person_id), entityId: text(item.entity_id), appointmentDate: text(item.appointment_date), status: text(item.status) })), (orderedEntities ?? []).map(e => ({ id: text(e.id), name: text(e.name), line: text(e.line) })));
       let rows = reportSource.map((item) => {
         const entityId = text(item.entity_id);
         const entity = names.get(entityId) || "Entidade";
@@ -349,6 +352,7 @@ export async function GET(request: Request) {
           const availability = cadernoAvailability.get(key);
           return {
             _appointmentId: text(item.id),
+            _dualAttendanceLabel: dualLabels.get(text(item.id)) || "",
             _entityId: entityId,
             _entityOrder: orderForDate(entityId, text(item.appointment_date)),
             _entityAvailable: availability?.isAvailable === false ? "0" : "1",
@@ -432,6 +436,7 @@ export async function GET(request: Request) {
             const cadernoEntityName = `${entityName} ${Math.max(0, Number(entity.booked ?? 0) || 0)}/${Math.max(1, Number(entity.capacity ?? 0) || 1)}${entity.isAvailable === false ? " · INDISPONÍVEL" : ""}`;
             rows.push({
               _appointmentId: "",
+              _dualAttendanceLabel: "",
               _entityId: entity.id,
               _entityOrder: orderForDate(entity.id, date),
               _entityAvailable: entity.isAvailable === false ? "0" : "1",

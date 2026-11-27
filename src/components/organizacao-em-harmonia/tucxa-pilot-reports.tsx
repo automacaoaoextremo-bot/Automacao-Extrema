@@ -203,7 +203,7 @@ function printableEntityCard(entity: string, items: Row[]) {
             const firstTimeBadge = String(item._firstTimeIndicatorActive ?? "0") === "1"
               ? `<span class="status-badge status-first-time">Primeira vez</span>`
               : "";
-            return `<tr class="${String(item.Status ?? "").toLowerCase() === "cancelado" ? "cancelled-row" : ""}"><td class="order">&nbsp;</td><td><div class="consulente-name">${escapeHtml(firstTwoPersonNames(item.Consulente))}</div>${status ? `<span class="status-badge ${status.printClass}">${escapeHtml(status.label)}</span>` : ""}${firstTimeBadge}${priorityBadge}${note ? `<div class="row-note">${escapeHtml(note)}</div>` : ""}</td></tr>`;
+            return `<tr class="${String(item.Status ?? "").toLowerCase() === "cancelado" ? "cancelled-row" : ""}"><td class="order">&nbsp;</td><td><div class="consulente-name">${escapeHtml(firstTwoPersonNames(item.Consulente))}${item._dualAttendanceLabel ? ` <span class="dual-label">(${escapeHtml(String(item._dualAttendanceLabel))})</span>` : ""}</div>${status ? `<span class="status-badge ${status.printClass}">${escapeHtml(status.label)}</span>` : ""}${firstTimeBadge}${priorityBadge}${note ? `<div class="row-note">${escapeHtml(note)}</div>` : ""}</td></tr>`;
           }).join("")}
           ${Array.from({ length: blankSlots }).map(() => `<tr class="available-slot"><td class="order">&nbsp;</td><td>&nbsp;</td></tr>`).join("")}
         </tbody>
@@ -452,6 +452,7 @@ export function TucxaPilotReports() {
             .status-confirmed{border-color:#a7d7b5;background:#edf9f0;color:#146b34}
             .status-requested{border-color:#e5c56f;background:#fff8df;color:#725000}
             .row-note{margin-top:2px;font-size:8px;color:#555}
+            .dual-label{font-size:8px;font-weight:600;color:#234d36;display:inline}
             .cancelled-row .consulente-name{text-decoration:line-through;color:#777}
           </style></head><body>${printableTable(rows, "TUCXA · Relatório", kind === "caderno", reportOrderMode)}</body></html>`);
           report.document.close(); report.focus(); window.setTimeout(() => report.print(), 250);
@@ -503,7 +504,7 @@ export function TucxaPilotReports() {
                               <div key={`${date}-${entity}-${index}`} className={`grid grid-cols-[2.5rem_1fr] gap-2 px-3 py-2 ${cancelled ? "bg-red-50/40" : ""}`}>
                                 <span aria-hidden="true">&nbsp;</span>
                                 <div>
-                                  <div className={`font-bold ${cancelled ? "text-slate-500 line-through" : "text-[#123D2C]"}`}>{firstTwoPersonNames(item.Consulente)}</div>
+                                  <div className={`font-bold ${cancelled ? "text-slate-500 line-through" : "text-[#123D2C]"}`}>{firstTwoPersonNames(item.Consulente)}{item._dualAttendanceLabel && <span className="ml-1 text-[10px] font-semibold text-emerald-800">({String(item._dualAttendanceLabel)})</span>}</div>
                                   {status && (
                                     <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-black ring-1 ${status.className}`}>
                                       {status.label}

@@ -2487,7 +2487,7 @@ export async function POST(request: Request) {
         }
       }
 
-      const { data, error } = await supabaseAdmin.rpc("oh_tucxa_pilot_mark_arrival", {
+      const { data, error } = await supabaseAdmin.rpc(arrivalStatus === "arrived" ? "oh_tucxa_pilot_mark_arrival_ag34" : "oh_tucxa_pilot_mark_arrival", {
         p_organization_id: context.organizationId,
         p_appointment_id: appointmentId,
         p_actor_person_id: context.personId,
@@ -2515,7 +2515,7 @@ export async function POST(request: Request) {
         arrival,
         message: arrivalStatus === "arrived"
           ? confirmedArrivalOrder
-            ? `Chegada registrada na ordem ${confirmedArrivalOrder} desta Entidade.`
+            ? `Chegada registrada na ordem ${confirmedArrivalOrder} desta Entidade. Outros atendimentos elegíveis da pessoa nesta data também foram atualizados.`
             : "Chegada registrada."
           : arrivalStatus === "absent"
             ? "Ausência registrada."

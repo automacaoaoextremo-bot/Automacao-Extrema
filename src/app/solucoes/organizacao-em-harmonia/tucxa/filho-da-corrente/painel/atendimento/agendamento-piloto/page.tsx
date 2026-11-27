@@ -11,6 +11,8 @@ import { TucxaGestaoContent } from "./gestao/gestao";
 import { TucxaDiagnosticoEnviosContent } from "@/components/organizacao-em-harmonia/tucxa-diagnostico-envios";
 import { disambiguatedPersonDisplayNames, firstTwoPersonNames } from "@/lib/organizacao-em-harmonia/person-display";
 
+import { dualAttendanceLabels } from "@/lib/organizacao-em-harmonia/tucxa-dual-attendance";
+
 const API_PATH = "/api/organizacao-em-harmonia/filhos-corrente/agendamento-piloto";
 const LEGACY_BOOKING_API = "/api/organizacao-em-harmonia/filhos-corrente/agendamentos";
 const UNIFIED_LOGIN = "/solucoes/organizacao-em-harmonia/agendamento/login";
@@ -859,6 +861,12 @@ export default function AgendamentoPilotoRecepcaoPage() {
     const entity = payload?.entityCatalog.find((item) => item.name === name || item.name.replace(/\s*\([^)]*\)\s*$/, "").trim() === base);
     const line = entity?.line?.trim();
     return `${base}${line && line.toLocaleUpperCase("pt-BR") !== "ATENDIMENTO FILHO DE FORA" ? ` (${line})` : ""}`;
+  }
+
+  const dualLabels = useMemo(() => dualAttendanceLabels(payload?.appointments ?? [], payload?.entityCatalog ?? []), [payload]);
+  function dualLabel(appointment: Appointment) {
+    const label = dualLabels.get(appointment.id);
+    return label ? <span className="ml-1 text-[10px] font-semibold text-emerald-800">({label})</span> : null;
   }
 
   const filteredAppointments = useMemo(() => {
@@ -3021,7 +3029,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                           {[...appointments].sort((a, b) => compareTriageAppointments(a, b, payload.settings.triageDisplayOrder)).map((appointment) => (
                             <div key={`triagem-ampla-${appointment.id}`} className={`grid gap-1 px-2 py-2 ${appointment.status === "cancelado" ? "bg-red-50" : ""}`}>
                               <div className="flex flex-wrap items-center justify-between gap-1">
-                                <span className={`text-sm font-black leading-snug ${appointment.status === "cancelado" ? "text-slate-500 line-through" : "text-[#123D2C]"}`}>{firstTwoPersonNames(appointment.consulenteName)}</span>
+                                <span className={`text-sm font-black leading-snug ${appointment.status === "cancelado" ? "text-slate-500 line-through" : "text-[#123D2C]"}`}>{firstTwoPersonNames(appointment.consulenteName)}{dualLabel(appointment)}</span>
                                 <span className={`rounded-full px-2 py-0.5 text-[9px] font-black ring-1 ${statusClasses(appointment)}`}>{statusLabel(appointment)}</span>
                               </div>
                               <div className="flex flex-wrap items-center gap-1">
@@ -3097,7 +3105,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                         {visibleConsultAppointments.filter((item) => item.entityName === entityName).sort((a, b) => compareTriageAppointments(a, b, payload.settings.triageDisplayOrder)).map((appointment) => (
                           <div key={`caderno-row-${appointment.id}`} className={`grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] items-center gap-2 px-3 py-2 ${appointment.status === "cancelado" ? "bg-red-50/50" : ""}`}>
                             <div className="min-w-0">
-                              <p className={`truncate text-sm font-black ${appointment.status === "cancelado" ? "text-slate-500 line-through" : "text-[#123D2C]"}`}>{firstTwoPersonNames(appointment.consulenteName)}</p>
+                              <p className={`break-words text-sm font-black ${appointment.status === "cancelado" ? "text-slate-500 line-through" : "text-[#123D2C]"}`}>{firstTwoPersonNames(appointment.consulenteName)}{dualLabel(appointment)}</p>
                               {appointment.status !== "cancelado" && (
                                 <div className="mt-1 flex flex-wrap gap-1">
                                   <button type="button" disabled={saving} onClick={() => openIndividualEntityChange(appointment)} className="rounded-md bg-[#E9F2E7] px-1.5 py-1 text-[9px] font-black text-[#123D2C] disabled:opacity-50">Trocar Entidade</button>
@@ -3160,7 +3168,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       <article key={appointment.id} className="min-w-0 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
                         <div className="flex min-w-0 items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <h4 className="break-words font-black text-[#123D2C]">{firstTwoPersonNames(appointment.consulenteName)}</h4>
+                            <h4 className="break-words font-black text-[#123D2C]">{firstTwoPersonNames(appointment.consulenteName)}{dualLabel(appointment)}</h4>
                             {detail && <p className="mt-1 text-sm font-semibold text-slate-600">{detail}</p>}
                           </div>
                           <div className="flex max-w-full shrink-0 flex-col items-end">
@@ -3213,7 +3221,7 @@ export default function AgendamentoPilotoRecepcaoPage() {
                       <article key={`lista-consulente-${appointment.id}`} className="min-w-0 rounded-2xl bg-[#F7FAF2] p-3 ring-1 ring-[#123D2C]/10">
                         <div className="flex min-w-0 items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <h4 className="break-words font-black text-[#123D2C]">{firstTwoPersonNames(appointment.consulenteName)} · {entityWithLine(appointment.entityName)}</h4>
+                            <h4 className="break-words font-black text-[#123D2C]">{firstTwoPersonNames(appointment.consulenteName)}{dualLabel(appointment)} · {entityWithLine(appointment.entityName)}</h4>
                             {appointment.order && <p className="mt-1 text-sm font-semibold text-slate-600">Ordem de agendamento {appointment.order}</p>}
                           </div>
                           <div className="flex max-w-full shrink-0 flex-col items-end">
