@@ -213,8 +213,13 @@ async function payload(request: Request) {
         return entity.id === defaultEntityId || eligibleEntityIds.has(entity.id);
       });
       const bookings = activeByDate.get(date.date) ?? [];
-      const allowed = authorized.filter((entity) => !bookings.includes(entity.id)
-         && (bookings.length === 0 || sameDayAllowedIds.has(entity.id)));
+      // AG31: as duas Entidades devem ser distintas; a autorizacao pode estar
+      // na Entidade ja reservada OU na nova, independentemente da ordem.
+      // O banco tambem limita a duas reservas ativas por pessoa e data.
+      const existingHasPermission = bookings.some((id) => sameDayAllowedIds.has(id));
+      const allowed = authorized.filter((entity) =>
+        bookings.length < 2 && !bookings.includes(entity.id) &&
+        (bookings.length === 0 || existingHasPermission || sameDayAllowedIds.has(entity.id)));
       return {
         date: date.date, label: date.label, alreadyBooked: bookings.length > 0 && !allowed.length,
         entities: allowed.map((entity) => ({ id: entity.id, name: entity.name,
@@ -364,14 +369,21 @@ export async function POST(request: Request) {
       const today = todayInSaoPaulo();
       const alreadyBooked = await loadPilotAppointments(context.organizationId, today, appointmentDate, target.personId);
       const activeBookings = alreadyBooked.filter((item) => item.appointmentDate === appointmentDate && PILOT_ACTIVE_STATUSES.includes(item.status));
-      const { data: selectedPermission, error: permissionError } = await supabaseAdmin.from("oh_spiritual_entities")
-        .select("pilot_allows_same_day_booking").eq("organization_id", context.organizationId)
-        .eq("id", entity.id).maybeSingle();
-      if (permissionError) throw permissionError;
       if (activeBookings.some((item) => item.entityId === entity.id))
         return NextResponse.json({ error: "A pessoa ja possui uma reserva ativa com esta mesma Entidade na data." }, { status: 409 });
-      if (activeBookings.length > 0 && selectedPermission?.pilot_allows_same_day_booking !== true)
-        return NextResponse.json({ error: "Esta Entidade nao esta autorizada a receber um agendamento adicional na mesma data." }, { status: 409 });
+      if (activeBookings.length >= 2)
+        return NextResponse.json({ error: "O limite e de dois agendamentos por pessoa e data, sempre com Entidades diferentes." }, { status: 409 });
+      if (activeBookings.length > 0) {
+        // AG31: verifica a permissao em qualquer UMA das duas Entidades,
+        // inclusive quando a Entidade autorizada foi agendada primeiro.
+        const ids = [...new Set([entity.id, ...activeBookings.map((item) => item.entityId)])];
+        const { data: permissions, error: permissionError } = await supabaseAdmin.from("oh_spiritual_entities")
+          .select("id,pilot_allows_same_day_booking").eq("organization_id", context.organizationId)
+          .in("id", ids);
+        if (permissionError) throw permissionError;
+        if (!(permissions ?? []).some((item) => item.pilot_allows_same_day_booking === true))
+          return NextResponse.json({ error: "Para dois atendimentos na mesma data, pelo menos uma das Entidades deve estar autorizada; as Entidades devem ser diferentes." }, { status: 409 });
+      }
       const token = createConfirmationToken();
       const deadline = confirmationDeadlineIso(appointmentDate, settings.confirmationCutoff);
       const { data: reservationData, error: reservationError } = await supabaseAdmin.rpc("oh_tucxa_pilot_reserve_appointment", {
